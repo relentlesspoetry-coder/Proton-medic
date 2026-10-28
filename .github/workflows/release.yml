@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Stable version tag matching the application (e.g. v0.6.7)'
+        description: 'Stable version tag matching the application (e.g. v0.6.8)'
         required: true
         type: string
 permissions:
@@ -40,7 +40,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev fontconfig
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev fontconfig libglib2.0-bin
       - run: npm ci
       - name: Complete release gate
         env:

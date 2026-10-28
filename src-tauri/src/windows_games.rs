@@ -137,7 +137,7 @@ fn spawn(dir:PathBuf,mut record:Record,r:Runtime,exe:PathBuf,install:bool)->Resu
     let stdout=OpenOptions::new().write(true).create_new(true).mode(0o600).open(logs.join("stdout.log")).map_err(|e|e.to_string())?;
     let stderr=OpenOptions::new().write(true).create_new(true).mode(0o600).open(logs.join("stderr.log")).map_err(|e|e.to_string())?;
     record.boot_id=boot_id();record.run_id=Some(run);record.exit_code=None;record.state=if install{"installer-running"}else{"game-running"}.into();
-    record.message=if install{"Installer started. Complete its Windows setup wizard, then select the installed game executable."}else{"Game process started; confirm gameplay yourself."}.into();save(&dir,&record)?;
+    record.message=if install{"Complete the setup window, then select the installed game executable."}else{"Game started."}.into();save(&dir,&record)?;
     let child=command_with_prefix(&r,&dir,&prefix,&exe,&logs).spawn();
     let mut child=match child{Ok(c)=>c,Err(e)=>{record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");save(&dir,&record)?;return Ok(view(&dir,record,false));}};
     let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
@@ -148,7 +148,7 @@ fn spawn(dir:PathBuf,mut record:Record,r:Runtime,exe:PathBuf,install:bool)->Resu
         let status=child.wait();let capture_ok=[a.join(),b.join()].into_iter().all(|r|matches!(r,Ok(Ok(()))));
         record.exit_code=status.as_ref().ok().and_then(|s|s.code());
         record.state=if status.as_ref().is_ok_and(|s|s.success()){if install{"installer-exited"}else{"game-exited"}}else{"process-failed"}.into();
-        record.message=if install{"Installer process ended. This is not installation proof: select and test the installed game executable."}else{"Game process ended. Exit status does not establish playability."}.into();
+        record.message=if install{"Setup process ended. Select the installed game executable to continue."}else{"Game process ended."}.into();
         if let Err(e)=status{record.message=format!("Could not observe runtime exit: {e}");}
         if !capture_ok{record.message.push_str(" Runtime output capture failed; logs may be incomplete.");}
         if let Ok(mut jobs)=JOBS.lock(){if persist_completion(&dir,&record).is_ok(){jobs.remove(&record.id);}}
@@ -181,7 +181,7 @@ pub fn select_executable(id:String,path:String,confirmed:bool)->Result<Game,Stri
     if !confirmed{return Err("Approve the installed executable selection".into());}
     let root=root()?;let jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;if jobs.contains(&id){return Err("Wait for this installer/game process to finish first".into());}
     let dir=profile_dir(&root,&id)?;let _profile_lock=lock_profile(&dir)?;let(dir,mut r)=load(&root,&id)?;require_idle(&r)?;let exe=checked_exe(&dir,&r,Path::new(&path))?;
-    r.game_exe=Some(exe.to_string_lossy().into());r.state="ready-to-test".into();r.message="Executable selected. Launch and confirm gameplay yourself.".into();save(&dir,&r)?;Ok(view(&dir,r,false))
+    r.game_exe=Some(exe.to_string_lossy().into());r.state="ready-to-test".into();r.message="Executable selected. You can launch the game or create a desktop shortcut.".into();save(&dir,&r)?;Ok(view(&dir,r,false))
 }
 pub fn launch(id:String,confirmed:bool)->Result<Game,String>{
     if !confirmed{return Err("Approve opening this Windows game".into());}

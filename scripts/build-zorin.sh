@@ -106,6 +106,9 @@ npm run build
 echo '[RUN] Tauri native DEB build (no AppImage/download-based bundling)'
 npm run tauri -- build --bundles deb -- --locked
 
+echo '[RUN] Native desktop shortcut integration tests (fake Wine, disposable profile)'
+python3 scripts/test-windows-shortcut.py src-tauri/target/release/proton-medic
+
 shopt -s nullglob
 packages=(src-tauri/target/release/bundle/deb/*.deb)
 if (( ${#packages[@]} == 0 )); then

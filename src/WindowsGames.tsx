@@ -10,7 +10,8 @@ interface Library { runtimes: Runtime[]; games: Game[]; warnings: string[] }
 interface ExecutableSearch { executables: string[]; truncated: boolean }
 const empty: Library = { runtimes: [], games: [], warnings: [] };
 const isRunning = (game: Game) => game.state.endsWith('running') || game.state === 'session-ended';
-const statusLabel = (game: Game) => ({ 'installer-running': 'Installing', 'game-running': 'Running', 'installer-exited': 'Choose game executable', 'ready-to-test': 'Ready to launch', 'game-exited': 'Stopped', 'process-failed': 'Process failed', 'start-failed': 'Could not start', 'session-ended': 'Previous run needs attention', interrupted: 'Previous run interrupted' }[game.state] ?? 'Setup needed');
+const STATUS_LABELS: Record<string, string> = { 'installer-running': 'Installing', 'game-running': 'Running', 'installer-exited': 'Choose game executable', 'ready-to-test': 'Ready to launch', 'game-exited': 'Stopped', 'process-failed': 'Process failed', 'start-failed': 'Could not start', 'session-ended': 'Previous run needs attention', interrupted: 'Previous run interrupted' };
+const statusLabel = (game: Game) => STATUS_LABELS[game.state] ?? 'Setup needed';
 
 export function WindowsGames() {
   const [library, setLibrary] = useState<Library>(empty);
@@ -120,9 +121,8 @@ function WindowsGameCard({ game, busy, run, remember, refresh, notify }: { game:
         if (typeof file === 'string') await select(file);
       })}>{game.gameExe ? 'Change game .exe' : 'Select installed game .exe'}</button>
       {!game.gameExe && <button disabled={busy || running} className="pm-button pm-button-secondary" onClick={() => void run(async () => { const result = await invoke<ExecutableSearch>('find_windows_game_executables', { id: game.id }); setSearch(result); setCandidate(''); })}><Search size={17}/>Find game executables</button>}
-      <button disabled={busy || !game.gameExe} className="pm-button pm-button-secondary" onClick={() => void run(async () => { const paths = await invoke<string[]>('create_windows_game_shortcut', { id: game.id, confirmed: true }); notify(`Shortcuts created in your desktop and applications menu. If prompted, choose Allow Launching. ${paths.join(' · ')}`); })}><Monitor size={17}/>Create desktop shortcut</button>
+      {game.gameExe && <button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void run(async () => { const paths = await invoke<string[]>('create_windows_game_shortcut', { id: game.id, confirmed: true }); notify(`Shortcuts created in your desktop and applications menu. If prompted, choose Allow Launching. ${paths.join(' · ')}`); })}><Monitor size={17}/>Create desktop shortcut</button>}
     </div>
-    {!game.gameExe && <button disabled className="pm-button pm-button-primary pm-launch-unavailable"><Play size={17}/>Launch game</button>}
     {search && <div className="pm-executable-search">
       {search.executables.length ? <><label>Game executable<select aria-label={`Executable for ${game.name}`} value={candidate} onChange={e => setCandidate(e.target.value)}><option value="">Choose a game executable…</option>{search.executables.map(path => <option key={path} value={path}>{path}</option>)}</select></label><button className="pm-button pm-button-primary" disabled={busy || running || !candidate} onClick={() => void run(() => select(candidate))}>Use selected executable</button></> : <p>No game executables found. Use Select installed game .exe to choose a file on another drive.</p>}
       {search.truncated && <p>The search reached its limit. You can choose a file manually.</p>}

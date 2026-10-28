@@ -84,7 +84,7 @@ h3 { margin-top: 0; }
 .pm-button-secondary { background: #1a3451; border-color: #436486; color: #d4e9ff; }
 .pm-game-toolbar { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
 .pm-search { display: flex; align-items: center; gap: 9px; flex: 1; min-width: min(220px,100%); background: #1a2937; border: 1px solid #374a59; border-radius: 10px; padding: 0 13px; color: #abc0cf; height: 45px; }
-.pm-search input { width: 100%; border: 0; outline: none; background: transparent; color: #f0f5fa; font-size: 13px; min-width: 0; padding: 0; min-height: 0; }
+.pm-game-toolbar .pm-search input { width: 100%; border: 0; outline: none; background: transparent; color: #f0f5fa; font-size: 13px; min-width: 0; padding: 0; min-height: 0; }
 .pm-game-toolbar select { background: #1a2937; border: 1px solid #374a59; border-radius: 10px; color: #f0f5fa; height: 45px; padding: 0 12px; font-size: 12px; }
 .pm-game-toolbar>span { font-size: 11px; color: #90a4b7; }
 .pm-back { border: 0; background: transparent; display: flex; gap: 8px; align-items: center; color: #a8bfce; font-size: 12px; padding: 8px 0; margin-bottom: 16px; }
@@ -309,7 +309,6 @@ pre { overflow-wrap: anywhere; }
 .pm-windows-paths dt { color: var(--pm-muted); }
 .pm-windows-paths dd { margin: 0; overflow-wrap: anywhere; }
 .pm-executable-search { display: grid; gap: 12px; margin: 16px 0; min-width: 0; }
-.pm-launch-unavailable { margin-top: 12px; }
 @keyframes pm-spin { to{transform:rotate(360deg)} }
 @supports (backdrop-filter:blur(16px)) {  .pm-sidebar, .pm-section, .pm-action-card { backdrop-filter: blur(16px); }  }
 @media(max-width:680px) {

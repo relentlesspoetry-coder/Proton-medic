@@ -29,7 +29,7 @@ it('editing the installer name clears prior approval',async()=>{
  await mount();fireEvent.click(screen.getByRole('checkbox'));fireEvent.change(screen.getByRole('textbox',{name:'Game name'}),{target:{value:'Changed'}});expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
 });
 it('installer exit zero does not enable launch before executable selection',async()=>{
- invoke.mockResolvedValue({runtimes:[runtime],games:[game],warnings:[]});await mount();expect((screen.getByRole('button',{name:'Launch game'}) as HTMLButtonElement).disabled).toBe(true);
+ invoke.mockResolvedValue({runtimes:[runtime],games:[game],warnings:[]});await mount();expect(screen.queryByRole('button',{name:'Launch game'})).toBeNull();
  open.mockResolvedValue(game.windowsDrive+'/Game/game.exe');await click('Select installed game .exe');
  expect(invoke).toHaveBeenCalledWith('select_windows_game_executable',{id:'123',path:game.windowsDrive+'/Game/game.exe',confirmed:true});
 });

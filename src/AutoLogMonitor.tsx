@@ -34,6 +34,10 @@ export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled
     void poll();
     return () => { stopped = true; clearTimeout(timer); };
   }, [enabled]);
+  const results = updates.map(item => <div key={`${item.libraryPath}:${item.appId}`} className="pm-auto-message" role="status"><strong>{item.gameName} · {item.state}</strong><p>{item.message}</p>
+      {item.session && <p>Backup: <code>{item.session.selection.backupPath || 'No change needed'}</code></p>}
+      <details><summary>Log findings</summary><p>{item.codes.join(', ') || 'No recognized error signatures'}</p></details>
+    </div>);
   if (!expanded && !error && !updates.length) return null;
   return <section className="pm-section" aria-label="Automatic game log reader">
     <div className="pm-section-heading"><div><h2>{expanded ? 'Log monitoring' : 'Game log updates'}</h2>{expanded && <p>Checks new Proton logs while Proton Medic is open.</p>}</div></div>
@@ -41,9 +45,6 @@ export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled
     <details className="pm-update-details"><summary>How log monitoring works</summary><p>Reads logs every 10 seconds. Automatic fixes use new findings and make at most one attempt per game per app session. Use Diagnose this game or a launch test to enable logging.</p></details></>}
     {error && <p role="alert" className="pm-repair-danger">{error}</p>}
     {expanded && !updates.length && <p role="status">Watching for new game logs. No findings to display.</p>}
-    {updates.map(item => <div key={`${item.libraryPath}:${item.appId}`} className="pm-auto-message" role="status"><strong>{item.gameName} · {item.state}</strong><p>{item.message}</p>
-      {item.session && <p>Backup: <code>{item.session.selection.backupPath || 'No change needed'}</code></p>}
-      <details><summary>Log findings</summary><p>{item.codes.join(', ') || 'No recognized error signatures'}</p></details>
-    </div>)}
+    {expanded ? results : <details className="pm-update-details"><summary>{updates.length} game log update{updates.length === 1 ? '' : 's'} — review results</summary>{results}</details>}
   </section>;
 }
