@@ -1,0 +1,46 @@
+name: Proton Medic — Linux native validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Check Zorin/Debian build prerequisites
+        run: ./scripts/build-zorin.sh --check
+      - name: Source checks
+        run: npm test
+      - name: Disposable launcher fixture protocol tests
+        run: python3 scripts/test-disposable-fixtures.py
+      - name: Native build gate regression checks
+        run: python3 scripts/test-build-gate.py
+      - name: Updater release manifest tests
+        run: python3 scripts/test-release-manifest.py
+      - name: Native Rust unit tests (disposable game fixtures)
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=2
+      - name: Frontend typecheck and production bundle
+        run: npm run build
+      - name: Tauri native Linux build
+        run: npm run tauri -- build --bundles deb -- --locked
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: proton-medic-linux-deb
+          path: src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error

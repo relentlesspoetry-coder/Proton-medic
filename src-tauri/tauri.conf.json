@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Proton Medic",
+  "version": "0.6.6",
+  "identifier": "org.protonmedic.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Proton Medic",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 850,
+        "minHeight": 620,
+        "backgroundColor": "#0d1119"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "deb",
+      "appimage"
+    ],
+    "category": "Utility",
+    "shortDescription": "Linux gaming diagnostics and Windows game management",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libc6 (>= 2.39)"
+        ]
+      }
+    },
+    "resources": {
+      "fonts/LICENSE": "licenses/DejaVu-LICENSE"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY5MTYwQkEzMDZEQkM2NDkKUldSSnh0c0dvd3NXK2Q4ZE1IVER3aERTYkduNFFUN0lVZGx1SXRUMkd2ZHUrZ2M5cUxNVDdRQWsK",
+      "requireSignedVersion": true,
+      "endpoints": [
+        "https://github.com/relentlesspoetry-coder/proton-medic/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
