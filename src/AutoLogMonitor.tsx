@@ -5,7 +5,7 @@ interface Update {
   appId: string; libraryPath: string; gameName: string; state: string; message: string; codes: string[];
   session: { sessionId: string; selection: AutoSelection } | null;
 }
-export function AutoLogMonitor({ enabled, onToggle }: { enabled: boolean; onToggle: (enabled: boolean) => void }) {
+export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled: boolean; onToggle: (enabled: boolean) => void; expanded?: boolean }) {
   const [updates, setUpdates] = useState<Update[]>([]);
   const [error, setError] = useState('');
   const delivered = useRef(new Set<string>());
@@ -34,12 +34,13 @@ export function AutoLogMonitor({ enabled, onToggle }: { enabled: boolean; onTogg
     void poll();
     return () => { stopped = true; clearTimeout(timer); };
   }, [enabled]);
+  if (!expanded && !error && !updates.length) return null;
   return <section className="pm-section" aria-label="Automatic game log reader">
-    <div className="pm-section-heading"><div><h2>Automatic Game Log Reader</h2><p>Checks Steam Proton logs every 10 seconds while Proton Medic is open. No manual log upload needed.</p></div></div>
-    <label className="pm-auto-toggle"><input type="checkbox" checked={enabled} onChange={e => onToggle(e.target.checked)}/><span><strong>Automatically apply supported fixes</strong><small>Changes are backed up and wait for Steam to close. One automatic attempt per game per app session. Games are not opened automatically.</small></span></label>
-    <p>Existing logs are read on startup; automatic fixes respond to new log evidence. Choose Diagnose this game or approve a launch test to enable its Proton logging automatically. Close Steam when prompted; no manual launch-option entry is needed for supported configurations.</p>
+    <div className="pm-section-heading"><div><h2>{expanded ? 'Log monitoring' : 'Game log updates'}</h2>{expanded && <p>Checks new Proton logs while Proton Medic is open.</p>}</div></div>
+    {expanded && <><label className="pm-auto-toggle"><input type="checkbox" checked={enabled} onChange={e => onToggle(e.target.checked)}/><span><strong>Automatically apply supported fixes</strong><small>Backs up each change and waits for Steam to close. Games are never launched automatically.</small></span></label>
+    <details className="pm-update-details"><summary>How log monitoring works</summary><p>Reads logs every 10 seconds. Automatic fixes use new findings and make at most one attempt per game per app session. Use Diagnose this game or a launch test to enable logging.</p></details></>}
     {error && <p role="alert" className="pm-repair-danger">{error}</p>}
-    {!updates.length && <p role="status">Watching for new game logs. No findings to display.</p>}
+    {expanded && !updates.length && <p role="status">Watching for new game logs. No findings to display.</p>}
     {updates.map(item => <div key={`${item.libraryPath}:${item.appId}`} className="pm-auto-message" role="status"><strong>{item.gameName} · {item.state}</strong><p>{item.message}</p>
       {item.session && <p>Backup: <code>{item.session.selection.backupPath || 'No change needed'}</code></p>}
       <details><summary>Log findings</summary><p>{item.codes.join(', ') || 'No recognized error signatures'}</p></details>

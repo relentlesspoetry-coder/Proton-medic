@@ -44,3 +44,14 @@ it('stops polling when the component closes', async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
   expect(invoke).toHaveBeenCalledTimes(1);
 });
+
+it('keeps polling in compact mode without an empty panel or a duplicate toggle',async()=>{
+ invoke.mockResolvedValue([]);const view=render(<AutoLogMonitor enabled={false} onToggle={()=>{}} expanded={false}/>);await act(async()=>{});
+ expect(view.container.textContent).toBe('');expect(screen.queryByRole('checkbox')).toBeNull();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(10000);});expect(invoke).toHaveBeenCalledTimes(2);
+});
+it('shows actionable monitor results in compact mode',async()=>{
+ invoke.mockResolvedValue([{appId:'123',libraryPath:'/fixture',gameName:'Fixture',state:'queued',message:'Close Steam to continue',codes:[],session:null}]);
+ render(<AutoLogMonitor enabled={true} onToggle={()=>{}} expanded={false}/>);await act(async()=>{});
+ expect(screen.getByText('Close Steam to continue')).toBeTruthy();expect(screen.queryByRole('checkbox')).toBeNull();
+});

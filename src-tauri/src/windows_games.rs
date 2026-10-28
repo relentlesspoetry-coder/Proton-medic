@@ -10,10 +10,10 @@ use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{R
 pub struct Runtime { pub id:String, pub name:String, pub kind:String, #[serde(skip)] binary:PathBuf, #[serde(skip)] steam:Option<PathBuf> }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-struct Record { id:String, name:String, runtime_id:String, installer:String, game_exe:Option<String>, state:String, exit_code:Option<i32>, message:String, run_id:Option<String>, #[serde(default)] boot_id:Option<String> }
+struct Record { id:String, name:String, runtime_id:String, installer:String, game_exe:Option<String>, state:String, exit_code:Option<i32>, message:String, run_id:Option<String>, #[serde(default)] boot_id:Option<String>, #[serde(default)] prefix_path:Option<String> }
 #[derive(Debug, Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct Game { pub id:String, pub name:String, pub runtime_id:String, pub game_exe:Option<String>, pub state:String, pub exit_code:Option<i32>, pub message:String, pub directory:String, pub windows_drive:String, pub log_directory:Option<String> }
+pub struct Game { pub id:String, pub name:String, pub runtime_id:String, pub game_exe:Option<String>, pub state:String, pub exit_code:Option<i32>, pub message:String, pub directory:String, pub windows_drive:String, pub prefix_directory:String, pub log_directory:Option<String> }
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Library { pub runtimes:Vec<Runtime>, pub games:Vec<Game>, pub warnings:Vec<String> }
@@ -39,7 +39,7 @@ fn directory(path:&Path,create:bool)->Result<(),String>{
     let m=fs::symlink_metadata(path).map_err(|e|e.to_string())?;if !m.is_dir() || m.file_type().is_symlink(){return Err("Managed game directories must not be symbolic links".into());}Ok(())
 }
 fn root()->Result<PathBuf,String>{
-    let base=std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(||std::env::var_os("HOME").map(|h|PathBuf::from(h).join(".local/share"))).ok_or("Application data directory unavailable")?;
+    let base=std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p|p.is_absolute()).or_else(||std::env::var_os("HOME").map(|h|PathBuf::from(h).join(".local/share"))).ok_or("Application data directory unavailable")?;
     if !base.is_absolute(){return Err("Application data directory must be absolute".into());}
     fs::create_dir_all(&base).map_err(|e|e.to_string())?;let base=fs::canonicalize(base).map_err(|e|e.to_string())?;
     let app=base.join("proton-medic");directory(&app,true)?;let root=app.join("windows-games");directory(&root,true)?;Ok(root)
@@ -53,9 +53,10 @@ fn save(dir:&Path,r:&Record)->Result<(),String>{
 }
 fn load(root:&Path,id:&str)->Result<(PathBuf,Record),String>{let dir=profile_dir(root,id)?;let file=dir.join("profile.json");regular(&file,65536)?;let record:Record=serde_json::from_slice(&fs::read(file).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;if record.id!=id{return Err("Managed game identity mismatch".into());}Ok((dir,record))}
 fn view(dir:&Path,r:Record,active:bool)->Game{
+    let prefix=prefix_path(dir,&r);
     let orphan=r.state.ends_with("running") && !active;let recovered=orphan && require_idle(&r).is_ok();
     Game{id:r.id,name:r.name,runtime_id:r.runtime_id,game_exe:r.game_exe,state:if recovered{"interrupted".into()}else if orphan{"session-ended".into()}else{r.state},exit_code:r.exit_code,
-        message:if recovered{"Previous run was interrupted by a system restart. You can select or launch the game again.".into()}else if orphan{"Previous process status is unknown. Restart Linux before reusing this profile. No game data will be deleted.".into()}else{r.message},directory:dir.to_string_lossy().into(),windows_drive:dir.join("compatdata/pfx/drive_c").to_string_lossy().into(),
+        message:if recovered{"Previous run was interrupted by a system restart. You can select or launch the game again.".into()}else if orphan{"Previous process status is unknown. Restart Linux before reusing this profile. No game data will be deleted.".into()}else{r.message},directory:dir.to_string_lossy().into(),windows_drive:prefix.join("drive_c").to_string_lossy().into(),prefix_directory:prefix.to_string_lossy().into(),
         log_directory:r.run_id.filter(|id|valid_id(id)).map(|id|dir.join("logs").join(id).to_string_lossy().into())}
 }
 fn executable(path:&Path)->Option<PathBuf>{let p=fs::canonicalize(path).ok()?;let m=fs::metadata(&p).ok()?;if m.is_file() && m.permissions().mode()&0o111!=0{Some(p)}else{None}}
@@ -85,15 +86,28 @@ fn windows_exe(path:&Path)->Result<PathBuf,String>{
     f.seek(SeekFrom::Start(offset)).map_err(|e|e.to_string())?;let mut pe=[0u8;6];f.read_exact(&mut pe).map_err(|e|e.to_string())?;
     if &pe[..4]!=b"PE\0\0" || !matches!(u16::from_le_bytes([pe[4],pe[5]]),0x14c|0x8664){return Err("Only x86/x64 Windows PE executables are supported".into());}Ok(path)
 }
-fn managed_exe(dir:&Path,path:&Path)->Result<PathBuf,String>{
-    let drive=dir.join("compatdata/pfx/drive_c");for p in [dir.join("compatdata"),dir.join("compatdata/pfx"),drive.clone()]{directory(&p,false)?;}
-    let drive=fs::canonicalize(drive).map_err(|e|e.to_string())?;let exe=windows_exe(path)?;
-    if !exe.starts_with(&drive){return Err("Choose the installed game executable inside this managed game's Windows C: drive".into());}Ok(exe)
+fn prefix_path(dir:&Path,record:&Record)->PathBuf {
+    record.prefix_path.as_ref().map(PathBuf::from).unwrap_or_else(||dir.join("compatdata/pfx"))
 }
+fn validate_prefix(prefix:&Path)->Result<PathBuf,String>{
+    if !prefix.is_absolute(){return Err("Choose an absolute Windows prefix path".into());}
+    directory(prefix,false)?;directory(&prefix.join("drive_c"),false)?;
+    regular(&prefix.join("system.reg"),64*1024*1024)?;
+    fs::canonicalize(prefix).map_err(|e|e.to_string())
+}
+fn checked_exe(dir:&Path,record:&Record,path:&Path)->Result<PathBuf,String>{
+    // A selected game can be on Z: or another drive; its prefix stays unchanged.
+    let prefix=prefix_path(dir,record);directory(&prefix,false)?;
+    directory(&prefix.join("drive_c"),false)?;windows_exe(path)
+}
+#[cfg(test)]
 fn command(r:&Runtime,dir:&Path,exe:&Path,logs:&Path)->Command{
+    command_with_prefix(r,dir,&dir.join("compatdata/pfx"),exe,logs)
+}
+fn command_with_prefix(r:&Runtime,dir:&Path,prefix:&Path,exe:&Path,logs:&Path)->Command{
     let mut cmd=crate::font_runtime::child_command(&r.binary);if r.kind=="proton"{cmd.arg("run");}
-    cmd.arg(exe).current_dir(exe.parent().unwrap_or(dir)).env("WINEPREFIX",dir.join("compatdata/pfx"))
-        .env("STEAM_COMPAT_DATA_PATH",dir.join("compatdata")).env("PROTON_LOG","1").env("PROTON_LOG_DIR",logs)
+    cmd.arg(exe).current_dir(exe.parent().unwrap_or(dir)).env("WINEPREFIX",prefix)
+        .env("STEAM_COMPAT_DATA_PATH",prefix.parent().unwrap_or(dir)).env("PROTON_LOG","1").env("PROTON_LOG_DIR",logs)
         .env_remove("WINEARCH").env("WINEDEBUG","-all,+err,+warn").env("SteamAppId","0").env("SteamGameId","0")
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(steam)=&r.steam{cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH",steam);}cmd
@@ -118,16 +132,18 @@ fn spawn(dir:PathBuf,mut record:Record,r:Runtime,exe:PathBuf,install:bool)->Resu
     let (_,fresh)=load(dir.parent().ok_or("Profile root unavailable")?,&record.id)?;require_idle(&fresh)?;
     if jobs.len()>=4{return Err("Close an installer/game before starting more (four active jobs maximum)".into());}
     let run=stamp()?;let log_root=dir.join("logs");directory(&log_root,true)?;let logs=log_root.join(&run);directory(&logs,true)?;
-    for p in [dir.join("compatdata"),dir.join("compatdata/pfx")]{directory(&p,true)?;}
+    if record.prefix_path.is_none(){for p in [dir.join("compatdata"),dir.join("compatdata/pfx")]{directory(&p,true)?;}}
+    let prefix=prefix_path(&dir,&record);directory(&prefix,false)?;
     let stdout=OpenOptions::new().write(true).create_new(true).mode(0o600).open(logs.join("stdout.log")).map_err(|e|e.to_string())?;
     let stderr=OpenOptions::new().write(true).create_new(true).mode(0o600).open(logs.join("stderr.log")).map_err(|e|e.to_string())?;
     record.boot_id=boot_id();record.run_id=Some(run);record.exit_code=None;record.state=if install{"installer-running"}else{"game-running"}.into();
     record.message=if install{"Installer started. Complete its Windows setup wizard, then select the installed game executable."}else{"Game process started; confirm gameplay yourself."}.into();save(&dir,&record)?;
-    let child=command(&r,&dir,&exe,&logs).spawn();
+    let child=command_with_prefix(&r,&dir,&prefix,&exe,&logs).spawn();
     let mut child=match child{Ok(c)=>c,Err(e)=>{record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");save(&dir,&record)?;return Ok(view(&dir,record,false));}};
     let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);
     std::thread::spawn(move||{
+        let _profile_lock_guard=_profile_lock;
         let a=std::thread::spawn(move||capture(out,stdout));let b=std::thread::spawn(move||capture(err,stderr));
         let status=child.wait();let capture_ok=[a.join(),b.join()].into_iter().all(|r|matches!(r,Ok(Ok(()))));
         record.exit_code=status.as_ref().ok().and_then(|s|s.code());
@@ -148,7 +164,8 @@ pub fn list()->Result<Library,String>{
                     if latest.state.ends_with("running") && latest.boot_id.is_none(){latest.boot_id=boot_id();save(&dir,&latest)?;}Ok::<_,String>(latest)})();
                 match migrate{Ok(latest)=>r=latest,Err(e)=>warnings.push(format!("Could not record recovery state for {id}: {e}"))}
             }
-            games.push(view(&dir,r,jobs.contains(&id)));
+            let active=jobs.contains(&id) || lock_profile(&dir).is_err();
+            games.push(view(&dir,r,active));
         },Err(e)=>warnings.push(format!("Could not read managed game {id}: {e}"))}}
     games.sort_by(|a,b|a.name.cmp(&b.name));Ok(Library{runtimes:runtimes(),games,warnings})
 }
@@ -157,19 +174,101 @@ pub fn install(name:String,installer:String,runtime_id:String,confirmed:bool)->R
     if name.trim().is_empty() || name.len()>120 || name.chars().any(char::is_control){return Err("Enter a game name of 1–120 characters".into());}
     let exe=windows_exe(Path::new(&installer))?;let runtime=runtime(&runtime_id)?;let root=root()?;
     let id=stamp()?;let dir=root.join(&id);directory(&dir,true)?;
-    let record=Record{id,name:name.trim().into(),runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None};save(&dir,&record)?;
+    let record=Record{id,name:name.trim().into(),runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None};save(&dir,&record)?;
     spawn(dir,record,runtime,exe,true)
 }
 pub fn select_executable(id:String,path:String,confirmed:bool)->Result<Game,String>{
     if !confirmed{return Err("Approve the installed executable selection".into());}
     let root=root()?;let jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;if jobs.contains(&id){return Err("Wait for this installer/game process to finish first".into());}
-    let dir=profile_dir(&root,&id)?;let _profile_lock=lock_profile(&dir)?;let(dir,mut r)=load(&root,&id)?;require_idle(&r)?;let exe=managed_exe(&dir,Path::new(&path))?;
+    let dir=profile_dir(&root,&id)?;let _profile_lock=lock_profile(&dir)?;let(dir,mut r)=load(&root,&id)?;require_idle(&r)?;let exe=checked_exe(&dir,&r,Path::new(&path))?;
     r.game_exe=Some(exe.to_string_lossy().into());r.state="ready-to-test".into();r.message="Executable selected. Launch and confirm gameplay yourself.".into();save(&dir,&r)?;Ok(view(&dir,r,false))
 }
 pub fn launch(id:String,confirmed:bool)->Result<Game,String>{
     if !confirmed{return Err("Approve opening this Windows game".into());}
-    let(dir,r)=load(&root()?,&id)?;let exe=managed_exe(&dir,Path::new(r.game_exe.as_deref().ok_or("Select the installed game's executable first")?))?;let runtime=runtime(&r.runtime_id)?;spawn(dir,r,runtime,exe,false)
+    launch_in(&root()?,&id)
 }
+fn launch_in(root:&Path,id:&str)->Result<Game,String>{
+    let(dir,r)=load(root,id)?;let exe=checked_exe(&dir,&r,Path::new(r.game_exe.as_deref().ok_or("Select the installed game's executable first")?))?;let runtime=runtime(&r.runtime_id)?;spawn(dir,r,runtime,exe,false)
+}
+fn validate_name(name:&str)->Result<String,String>{
+    if name.trim().is_empty() || name.len()>120 || name.chars().any(char::is_control){return Err("Enter a game name of 1–120 characters".into());}
+    Ok(name.trim().into())
+}
+pub fn register(name:String,path:String,prefix:String,runtime_id:String,confirmed:bool)->Result<Game,String>{
+    if !confirmed{return Err("Approve adding this installed game with its existing Windows prefix".into());}
+    let name=validate_name(&name)?;let exe=windows_exe(Path::new(&path))?;
+    let prefix=validate_prefix(Path::new(&prefix))?;let rt=runtime(&runtime_id)?;
+    if rt.kind=="proton" && prefix.file_name().is_none_or(|n|n!="pfx") {
+        return Err("Proton requires the existing prefix directory named pfx inside its compatibility-data directory. Use the Wine runtime for a Wine-style prefix.".into());
+    }
+    let root=root()?;let _lock=lock_profile(&root)?;
+    for item in fs::read_dir(&root).map_err(|e|e.to_string())?.flatten(){
+        let id=item.file_name().to_string_lossy().into_owned();if !valid_id(&id){continue;}
+        if let Ok((dir,r))=load(&root,&id){
+            if fs::canonicalize(prefix_path(&dir,&r)).ok().as_ref()==Some(&prefix) && r.game_exe.as_deref()==exe.to_str(){
+                return Err(format!("This executable is already registered as {}",r.name));
+            }
+        }
+    }
+    let id=stamp()?;let dir=root.join(&id);directory(&dir,true)?;
+    let record=Record{id,name,runtime_id,installer:String::new(),game_exe:Some(exe.to_string_lossy().into()),state:"ready-to-test".into(),exit_code:None,message:"Existing game added. Launch it to test.".into(),run_id:None,boot_id:None,prefix_path:Some(prefix.to_string_lossy().into())};
+    save(&dir,&record)?;Ok(view(&dir,record,false))
+}
+#[derive(Debug,Serialize)]
+pub struct ExecutableSearch { pub executables:Vec<String>,pub truncated:bool }
+fn search_executables(roots:Vec<PathBuf>)->ExecutableSearch{
+    let mut out=ExecutableSearch{executables:vec![],truncated:false};let mut stack:Vec<_>=roots.into_iter().map(|p|(p,0)).collect();
+    let mut seen=HashSet::new();let mut visited=0;
+    while let Some((dir,depth))=stack.pop(){
+        if depth>10{out.truncated=true;continue;}
+        let Ok(entries)=fs::read_dir(&dir) else{continue};
+        for entry in entries.flatten(){
+            visited+=1;if visited>12000 || out.executables.len()>=100{out.truncated=true;out.executables.sort();return out;}
+            let path=entry.path();let Ok(kind)=entry.file_type() else{continue};if kind.is_symlink(){continue;}
+            let name=entry.file_name().to_string_lossy().to_lowercase();
+            if kind.is_dir(){
+                if !["windows","programdata","internet explorer","windows media player","windows nt","steam","$recycle.bin"].contains(&name.as_str()){stack.push((path,depth+1));}
+            }else if kind.is_file() && name.ends_with(".exe") && !name.starts_with("unins") && !name.starts_with("setup") && !name.starts_with("vc_redist") {
+                if let Ok(exe)=windows_exe(&path){if seen.insert(exe.clone()){out.executables.push(exe.to_string_lossy().into());}}
+            }
+        }
+    }
+    out.executables.sort();out
+}
+pub fn find_executables(id:String)->Result<ExecutableSearch,String>{
+    let(dir,r)=load(&root()?,&id)?;let mut roots=vec![prefix_path(&dir,&r).join("drive_c")];
+    if let Some(parent)=Path::new(&r.installer).parent().filter(|p|p.is_absolute() && p.parent().is_some()){
+        if std::env::var_os("HOME").as_deref()!=Some(parent.as_os_str()){roots.push(parent.into());}
+    }
+    Ok(search_executables(roots))
+}
+pub fn rename(id:String,name:String,confirmed:bool)->Result<Game,String>{
+    if !confirmed{return Err("Approve renaming this game".into());}
+    let name=validate_name(&name)?;let root=root()?;let dir=profile_dir(&root,&id)?;let _lock=lock_profile(&dir)?;
+    let(_,mut r)=load(&root,&id)?;require_idle(&r)?;r.name=name;save(&dir,&r)?;Ok(view(&dir,r,false))
+}
+pub fn shortcut_profile(id:&str)->Result<(String,PathBuf),String>{
+    let root=root()?;let(dir,r)=load(&root,id)?;
+    checked_exe(&dir,&r,Path::new(r.game_exe.as_deref().ok_or("Select the game executable before creating a shortcut")?))?;
+    runtime(&r.runtime_id)?;Ok((r.name,root))
+}
+pub fn launch_shortcut(root:&Path,id:&str)->Result<(),String>{
+    directory(root,false)?;
+    let started=launch_in(root,id)?;
+    if started.state=="start-failed"{return Err(started.message);}
+    loop{
+        {
+            let jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;
+            if !jobs.contains(id){break;}
+            if UNSAVED.lock().map_err(|_|"Completion receipt unavailable")?.contains_key(id){return Err("Game ended but its completion receipt could not be saved. Check profile permissions.".into());}
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    let(_,done)=load(root,id)?;
+    if done.state=="process-failed"{return Err(format!("{} exited with status {:?}. Open Proton Medic to read the runtime logs.",done.name,done.exit_code));}
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct LogReport { findings:Vec<diagnostics::Finding>, logs:Vec<LogStatus> }
 #[derive(Serialize)]
@@ -190,7 +289,7 @@ mod tests{
     impl Fixture{fn new()->Self{let p=std::env::temp_dir().join(format!("pm-exe-{}",stamp().unwrap()));fs::create_dir(&p).unwrap();Self(p)}}
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
     fn pe(path:&Path){let mut bytes=vec![0u8;256];bytes[..2].copy_from_slice(b"MZ");bytes[60..64].copy_from_slice(&128u32.to_le_bytes());bytes[128..132].copy_from_slice(b"PE\0\0");bytes[132..134].copy_from_slice(&0x8664u16.to_le_bytes());fs::write(path,bytes).unwrap();}
-    fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None}}
+    fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None}}
     #[test] fn validates_windows_pe_and_rejects_linux_and_truncated_files(){
         let f=Fixture::new();let exe=f.0.join("setup.exe");pe(&exe);assert!(windows_exe(&exe).is_ok());
         fs::write(&exe,b"#!/bin/sh\necho not windows").unwrap();assert!(windows_exe(&exe).is_err());
@@ -201,10 +300,12 @@ mod tests{
         let f=Fixture::new();let exe=f.0.join("bad.exe");pe(&exe);let mut bytes=fs::read(&exe).unwrap();bytes[60..64].copy_from_slice(&u32::MAX.to_le_bytes());fs::write(&exe,bytes).unwrap();assert!(windows_exe(&exe).is_err());
         pe(&exe);let mut bytes=fs::read(&exe).unwrap();bytes[132..134].copy_from_slice(&0xaa64u16.to_le_bytes());fs::write(&exe,bytes).unwrap();assert!(windows_exe(&exe).is_err());
     }
-    #[test] fn game_selection_cannot_escape_managed_drive(){
-        let f=Fixture::new();fs::create_dir_all(f.0.join("compatdata/pfx/drive_c/Game")).unwrap();let outside=f.0.join("outside.exe");pe(&outside);assert!(managed_exe(&f.0,&outside).is_err());
-        let inside=f.0.join("compatdata/pfx/drive_c/Game/game.exe");pe(&inside);assert!(managed_exe(&f.0,&inside).is_ok());
-        let link=f.0.join("compatdata/pfx/drive_c/escape.exe");std::os::unix::fs::symlink(&outside,&link).unwrap();assert!(managed_exe(&f.0,&link).is_err());
+    #[test] fn game_selection_preserves_prefix_for_external_game(){
+        let f=Fixture::new();fs::create_dir_all(f.0.join("compatdata/pfx/drive_c/Game")).unwrap();
+        let outside=f.0.join("outside.exe");pe(&outside);
+        assert_eq!(checked_exe(&f.0,&record("123"),&outside).unwrap(),outside);
+        assert_eq!(prefix_path(&f.0,&record("123")),f.0.join("compatdata/pfx"));
+        assert!(checked_exe(&f.0,&record("123"),Path::new("/missing.exe")).is_err());
     }
     #[test] fn persisted_profiles_survive_reload_and_reject_identity_or_symlink_changes(){
         let f=Fixture::new();let id=stamp().unwrap();let dir=f.0.join(&id);directory(&dir,true).unwrap();save(&dir,&record(&id)).unwrap();assert_eq!(load(&f.0,&id).unwrap().1.name,"Fixture");
@@ -232,8 +333,8 @@ mod tests{
         let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
         while JOBS.lock().unwrap().contains(&id){assert!(std::time::Instant::now()<deadline);std::thread::sleep(std::time::Duration::from_millis(10));}
         let(_,done)=load(&f.0,&id).unwrap();assert_eq!(done.exit_code,Some(7));assert_eq!(done.state,"process-failed");
-        assert!(managed_exe(&dir,&dir.join("compatdata/pfx/drive_c/Game/game.exe")).is_ok());
-        let log=dir.join("logs").join(done.run_id.unwrap()).join("stderr.log");assert!(fs::read_to_string(log).unwrap().contains("unhandled exception"));
+        assert!(checked_exe(&dir,&done,&dir.join("compatdata/pfx/drive_c/Game/game.exe")).is_ok());
+        let log=dir.join("logs").join(done.run_id.as_ref().unwrap()).join("stderr.log");assert!(fs::read_to_string(log).unwrap().contains("unhandled exception"));
     }
     #[test] fn missing_runtime_is_recorded_as_failure_without_claiming_installation(){
         let f=Fixture::new();let id=stamp().unwrap();let dir=f.0.join(&id);directory(&dir,true).unwrap();let exe=f.0.join("setup.exe");pe(&exe);
@@ -257,6 +358,38 @@ mod tests{
     }
     #[test] fn profile_lock_excludes_second_instance(){
         let f=Fixture::new();let guard=lock_profile(&f.0).unwrap();assert!(lock_profile(&f.0).is_err());drop(guard);assert!(lock_profile(&f.0).is_ok());
+    }
+
+    #[test] fn legacy_profiles_load_without_an_external_prefix_field(){
+        let mut json=serde_json::to_value(record("123")).unwrap();json.as_object_mut().unwrap().remove("prefixPath");
+        let r:Record=serde_json::from_value(json).unwrap();assert!(r.prefix_path.is_none());
+        assert_eq!(prefix_path(Path::new("/managed/123"),&r),Path::new("/managed/123/compatdata/pfx"));
+    }
+    #[test] fn imported_game_uses_existing_prefix_in_runtime_environment(){
+        let mut r=record("123");r.prefix_path=Some("/existing/My Game/pfx".into());
+        let rt=Runtime{id:"fixture".into(),name:"Fixture".into(),kind:"proton".into(),binary:PathBuf::from("/fixture/proton"),steam:None};
+        let prefix=prefix_path(Path::new("/managed/123"),&r);
+        let cmd=command_with_prefix(&rt,Path::new("/managed/123"),&prefix,Path::new("/games/Wukong/b1.exe"),Path::new("/logs"));
+        let vars:HashMap<_,_>=cmd.get_envs().collect();
+        assert_eq!(vars[std::ffi::OsStr::new("WINEPREFIX")],Some(std::ffi::OsStr::new("/existing/My Game/pfx")));
+        assert_eq!(vars[std::ffi::OsStr::new("STEAM_COMPAT_DATA_PATH")],Some(std::ffi::OsStr::new("/existing/My Game")));
+    }
+    #[test] fn existing_prefix_requires_registry_and_c_drive(){
+        let f=Fixture::new();assert!(validate_prefix(&f.0).is_err());
+        fs::create_dir(f.0.join("drive_c")).unwrap();assert!(validate_prefix(&f.0).is_err());
+        fs::write(f.0.join("system.reg"),b"WINE REGISTRY Version 2").unwrap();assert!(validate_prefix(&f.0).is_ok());
+        assert!(validate_prefix(Path::new("relative")).is_err());
+    }
+    #[test] fn search_finds_external_game_and_skips_symlinks_and_system_files(){
+        let f=Fixture::new();fs::create_dir(f.0.join("Windows")).unwrap();pe(&f.0.join("Windows/system.exe"));
+        pe(&f.0.join("b1.exe"));pe(&f.0.join("setup.exe"));
+        std::os::unix::fs::symlink(f.0.join("b1.exe"),f.0.join("linked.exe")).unwrap();
+        let result=search_executables(vec![f.0.clone(),f.0.clone()]);
+        assert_eq!(result.executables,vec![f.0.join("b1.exe").to_string_lossy().into_owned()]);assert!(!result.truncated);
+    }
+    #[test] fn registration_and_renaming_require_consent_before_io(){
+        assert!(register("Game".into(),"/none.exe".into(),"/none".into(),"none".into(),false).unwrap_err().contains("Approve"));
+        assert!(rename("123".into(),"Game".into(),false).unwrap_err().contains("Approve"));
     }
 
 }

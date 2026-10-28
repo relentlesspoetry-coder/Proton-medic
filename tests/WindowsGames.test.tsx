@@ -40,9 +40,32 @@ it('launches a selected executable only after a launch click',async()=>{
 it('blocks relaunch and executable changes for an unresolved previous run',async()=>{
  invoke.mockResolvedValue({runtimes:[runtime],games:[{...game,state:'session-ended',gameExe:'/game.exe'}],warnings:[]});await mount();
  expect((screen.getByRole('button',{name:'Launch game'}) as HTMLButtonElement).disabled).toBe(true);
- expect((screen.getByRole('button',{name:'Select installed game .exe'}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole('button',{name:'Change game .exe'}) as HTMLButtonElement).disabled).toBe(true);
 });
 it('shows unreadable and partial log states independently of signatures',async()=>{
  invoke.mockImplementation((name:string)=>Promise.resolve(name==='analyze_windows_game'?{findings:[],logs:[{name:'stderr.log',status:'unreadable',truncated:true}]}:{runtimes:[runtime],games:[game],warnings:[]}));
- await mount();await click('Read runtime logs');expect(screen.getByText(/stderr.log: unreadable/)).toBeTruthy();expect(screen.getByText(/partial log/)).toBeTruthy();
+ await mount();fireEvent.click(screen.getByText('Game settings and logs'));await click('Read runtime logs');expect(screen.getByText(/stderr.log: unreadable/)).toBeTruthy();expect(screen.getByText(/partial log/)).toBeTruthy();
+});
+
+it('registers an existing game only after choosing its prefix and approving', async()=>{
+ await mount();await click('Add installed game');open.mockResolvedValueOnce('/Games/Wukong/b1.exe');await click('Choose game (.exe)');
+ fireEvent.change(screen.getByRole('textbox',{name:'Game name'}),{target:{value:'Black Myth Wukong'}});
+ open.mockResolvedValueOnce('/existing/pfx');await click('Choose existing prefix');
+ expect((screen.getByRole('button',{name:'Add game',exact:true}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('checkbox'));await click('Add game');
+ expect(invoke).toHaveBeenCalledWith('register_windows_game',{name:'Black Myth Wukong',path:'/Games/Wukong/b1.exe',prefix:'/existing/pfx',runtimeId:runtime.id,confirmed:true});
+});
+it('creates a shortcut only after the explicit shortcut click',async()=>{
+ invoke.mockImplementation((command:string)=>Promise.resolve(command==='create_windows_game_shortcut'?['/Desktop/game.desktop']:{runtimes:[runtime],games:[{...game,gameExe:'/Games/Wukong/b1.exe'}],warnings:[]}));
+ await mount();expect(invoke.mock.calls.every(c=>c[0]==='list_windows_games')).toBe(true);
+ await click('Create desktop shortcut');expect(invoke).toHaveBeenCalledWith('create_windows_game_shortcut',{id:'123',confirmed:true});
+ expect(screen.getByText(/Shortcuts created/)).toBeTruthy();
+});
+it('finding executables neither selects nor launches one automatically',async()=>{
+ invoke.mockImplementation((command:string)=>Promise.resolve(command==='find_windows_game_executables'?{executables:['/Games/Wukong/b1.exe'],truncated:false}:{runtimes:[runtime],games:[game],warnings:[]}));
+ await mount();await click('Find game executables');expect(invoke).not.toHaveBeenCalledWith('launch_windows_game',expect.anything());
+ expect((screen.getByRole('button',{name:'Use selected executable'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByRole('combobox',{name:'Executable for Fixture'}),{target:{value:'/Games/Wukong/b1.exe'}});
+ invoke.mockImplementation((command:string)=>Promise.resolve(command==='select_windows_game_executable'?{...game,gameExe:'/Games/Wukong/b1.exe'}:{runtimes:[runtime],games:[game],warnings:[]}));
+ await click('Use selected executable');expect(invoke).toHaveBeenCalledWith('select_windows_game_executable',{id:'123',path:'/Games/Wukong/b1.exe',confirmed:true});
 });

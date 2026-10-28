@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2,
-  ChevronDown, CircleHelp, Clock3, Cpu, Download,
+  ChevronDown, CircleHelp, Clock3, Download,
   Gamepad2, HardDrive, Home, Info, Layers, Monitor,
   RefreshCw, Search, Settings2, ShieldCheck, Wrench, X,
 } from 'lucide-react';
@@ -192,7 +192,7 @@ export default function App() {
       <AppUpdater/>
       {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
       {page === 'home' && <>
-        <div className="pm-welcome"><div><p className="pm-eyebrow">YOUR GAMING COMPANION</p><h1>Get back to playing.</h1><p>Choose a game. Find the problem. Take the next step.</p></div><div className="pm-hero-art" aria-hidden="true"><div className="pm-ring pm-ring-one"/><div className="pm-ring pm-ring-two"/><Gamepad2 size={105} strokeWidth={1.1}/></div></div>
+        <div className="pm-welcome"><div><p className="pm-eyebrow">PROTON MEDIC</p><h1>Your games, ready to play.</h1><p>Scan your library, diagnose a game, or run a Windows installer.</p></div></div>
         <div className="pm-action-grid">
           <button className="pm-action-card featured" onClick={() => void scanGames()} disabled={loading}><div className="pm-action-icon"><Search size={28}/></div><span><strong>{loading ? 'Scanning your games...' : 'Scan games'}</strong><small>Find your installed Steam games</small></span>{loading ? <RefreshCw size={18} className="pm-spin"/> : <ArrowRight size={20}/>}</button>
           <button className="pm-action-card" onClick={showAllGames}><div className="pm-action-icon"><Gamepad2 size={32}/></div><span><strong>Help with a game</strong><small>Check logs and explore fixes</small></span><ArrowRight size={20}/></button>
@@ -205,10 +205,10 @@ export default function App() {
           <div className="pm-metric"><div className="pm-metric-icon"><Clock3 size={24}/></div><div><strong>Last scan</strong><span>{lastScan ? lastScan.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Not yet'}</span></div></div>
         </div>
         <section className="pm-section pm-home-games"><div className="pm-section-heading"><div><h2>Games needing attention</h2><p>Based on the game files and logs available on this computer.</p></div><button className="pm-subtle-button" onClick={showAllGames}>View all games <ArrowRight size={16}/></button></div>
-          {loading && !scan ? <Empty title="Checking Steam libraries" detail="Looking for installed games and Proton logs."/> : !scan?.games.length ? <Empty title="No games found yet" detail="Install or launch Steam, then select Scan for Games."/> : !report && analyzing ? <Empty title="Checking for issues" detail="Reading existing Proton logs. No changes are made."/> : problems.length === 0 ? <Empty title="No issues identified in available data" detail="This does not confirm your games work. You can still inspect any game under My Games."/> : <div className="pm-problem-list">{problems.slice(0, 5).map(game => <GameRow key={gameKey(game)} game={game} diagnostic={issueByGame.get(gameKey(game))} onClick={() => openGame(game)} />)}</div>}
+          {loading && !scan ? <Empty title="Checking Steam libraries" detail="Looking for installed games and Proton logs."/> : !scan?.games.length ? <Empty title="No games found yet" detail="Install or launch Steam, then select Scan for Games."/> : !report && analyzing ? <Empty title="Checking for issues" detail="Reading existing Proton logs. No changes are made."/> : problems.length === 0 ? <Empty title="No known issues found" detail="Open a game in My Games for diagnostics and a launch test."/> : <div className="pm-problem-list">{problems.slice(0, 5).map(game => <GameRow key={gameKey(game)} game={game} diagnostic={issueByGame.get(gameKey(game))} onClick={() => openGame(game)} />)}</div>}
           {problems.length > 5 && <button className="pm-more" onClick={showProblems}>See all {problems.length} games needing attention <ArrowRight size={16}/></button>}
         </section>
-        <p className="pm-caveat"><ShieldCheck size={15}/> Review findings before applying a fix. Backups help you undo changes.</p>
+
       </>}
 
       {page === 'windows' && <WindowsGames/>}
@@ -222,7 +222,7 @@ export default function App() {
           <ProtonAdvisor advice={advice?.games.find(a => a.appId === selectedGame.appId && a.libraryPath === selectedGame.libraryPath)} loading={advising}
             applying={autoBusy} message={autoMessage} onApply={() => void selectAutomatically(selectedGame.appId, selectedGame.libraryPath)}/>
           <LaunchTest key={gameKey(selectedGame)} game={selectedGame}/>
-          <div className="pm-section"><h2>Recommended Next Steps</h2><p className="pm-lead">Review the evidence before changing any settings.</p>{selectedDiagnosis?.findings.length ? selectedDiagnosis.findings.map(f => <div className="pm-advice" key={f.code}><Wrench size={18}/><div><strong>{f.title}</strong><p>{f.recommendation}</p></div></div>) : <div className="pm-advice"><Info size={18}/><div><strong>Need more information?</strong><p>If the game fails to start, enable Proton logging using the instructions above, launch it once, then analyze again.</p></div></div>}</div>
+
           <FixAndTest key={gameKey(selectedGame)} game={selectedGame}/>
           <details className="pm-section pm-technical"><summary>Advanced repairs and backups <ChevronDown size={17}/></summary><RepairTools key={gameKey(selectedGame)} game={selectedGame} onChanged={() => void scanGames()}/></details>
           <details className="pm-section pm-technical"><summary>Technical Details <ChevronDown size={17}/></summary><dl><dt>Install directory</dt><dd>{selectedGame.installPath}</dd><dt>Steam library</dt><dd>{selectedGame.libraryPath}</dd><dt>Proton prefix folder</dt><dd>{selectedGame.prefixPath} — {selectedGame.prefixExists ? 'present' : 'not found'}</dd><dt>Manifest</dt><dd>{selectedGame.manifestPath}</dd><dt>Build ID</dt><dd>{selectedGame.buildId ?? 'Unknown'}</dd><dt>Steam compatibility override</dt><dd>{selectedGame.configuredTool ?? 'Automatic / no override detected'}</dd></dl></details>
@@ -237,17 +237,14 @@ export default function App() {
           {vulkan && <div className="pm-probe"><StatusTag tone={vulkan.status === 'available' ? 'ok' : 'warning'} label={vulkan.status === 'available' ? 'Vulkan probe succeeded' : `Vulkan: ${vulkan.status}`}/><p>{vulkan.detail}</p><details><summary>Technical output</summary><pre>{vulkan.output || 'No output returned.'}</pre></details></div>}
         </section><details className="pm-section pm-technical"><summary>Advanced system details <ChevronDown size={17}/></summary>{report && <div className="pm-system-advanced"><h3>Graphics devices</h3>{report.system.gpuDevices.map((g,i) => <pre key={i}>{g}</pre>)}<h3>Vulkan ICD files</h3>{report.system.icdManifests.map((v,i) => <pre key={i}>{v}</pre>)}{report.system.notes.map((n,i) => <p key={i}>{n}</p>)}</div>}</details></>}
 
-      {page === 'settings' && <div className="pm-page-title"><div><h1>Settings</h1><p>Automatic fixes and app preferences. App updates are available above.</p></div></div>}
-      {page === 'settings' && <><section className="pm-section pm-auto-settings"><div className="pm-section-heading"><div><h2>Automatic Log Fixes</h2><p>Proton Medic chooses and configures an alternative for games with recent compatibility errors.</p></div></div>
-          <label className="pm-auto-toggle"><input type="checkbox" checked={autoMode} onChange={event => toggleAutoMode(event.target.checked)}/><span><strong>Automatically fix supported new log failures</strong><small>Opt in once. Changes are made per game only, while Steam is fully closed. Existing settings are backed up. Missing Vulkan drivers and other system problems are not treated as Proton version issues.</small></span></label>
-          {autoMessage && <div className="pm-auto-message" role="status">{autoMessage}</div>}
-          <p className="pm-lead">When Steam is open, Proton Medic leaves its configuration alone. Close Steam to let the log monitor apply a queued supported fix. An automatic choice is not proof the game launches successfully.</p>
-        </section><section className="pm-section"><div className="pm-section-heading"><div><h2>Privacy & safety</h2><p>Game scans and logs stay on this computer.</p></div><ShieldCheck size={23} className="pm-green"/></div><p className="pm-lead">Scanning and log analysis are read-only. The optional repair tools only archive shader caches or compatibility prefixes after explicit confirmation. The original data is preserved in a backup on the same library drive. Close Steam before repairs or restores. Game diagnostics require no administrator access or telemetry. Checking for app updates contacts GitHub; installing a system package may ask for administrator approval.</p></section>
+      {page === 'settings' && <div className="pm-page-title"><div><h1>Settings</h1><p>Manage automatic fixes and privacy.</p></div></div>}
+      {page === 'settings' && autoMessage && <p className="pm-auto-message" role="status">{autoMessage}</p>}
+      {page === 'settings' && <><section className="pm-section"><div className="pm-section-heading"><div><h2>Privacy & safety</h2><p>Game scans and logs stay on this computer.</p></div><ShieldCheck size={23} className="pm-green"/></div><p className="pm-lead">Scanning and log analysis are read-only. The optional repair tools only archive shader caches or compatibility prefixes after explicit confirmation. The original data is preserved in a backup on the same library drive. Close Steam before repairs or restores. Game diagnostics require no administrator access or telemetry. Checking for app updates contacts GitHub; installing a system package may ask for administrator approval.</p></section>
         <details className="pm-section pm-technical"><summary>Available Proton versions ({scan?.compatibilityTools.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.compatibilityTools.length ? scan.compatibilityTools.map(tool => <div className="pm-discovery" key={tool.path}><Layers size={18}/><div><strong>{tool.name}</strong><small>{tool.source} · {tool.path}</small></div></div>) : <p>No compatibility tools detected.</p>}</details>
         <details className="pm-section pm-technical"><summary>Steam libraries ({scan?.libraries.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.libraries.length ? scan.libraries.map(lib => <div className="pm-discovery" key={lib.path}><HardDrive size={18}/><div><strong>{lib.installKind} library</strong><small>{lib.path}</small></div></div>) : <p>No libraries found.</p>}</details>
-        <details className="pm-section pm-technical"><summary>Scan warnings ({scan?.warnings.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.warnings.length ? scan.warnings.map((w,i) => <div key={i} className="pm-discovery"><AlertTriangle size={18}/><div>{w}</div></div>) : <p>No scanner warnings. This does not prove games run correctly.</p>}</details>
-        <div className="pm-about"><Cpu size={16}/> Built with Tauri, Rust, and React. No telemetry. Repairs require confirmation.</div></>}
-      <AutoLogMonitor enabled={autoMode} onToggle={toggleAutoMode}/>
+        <details className="pm-section pm-technical"><summary>Scan warnings ({scan?.warnings.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.warnings.length ? scan.warnings.map((w,i) => <div key={i} className="pm-discovery"><AlertTriangle size={18}/><div>{w}</div></div>) : <p>No scan warnings.</p>}</details>
+        </>}
+      <AutoLogMonitor enabled={autoMode} onToggle={toggleAutoMode} expanded={page === 'settings'}/>
     </main>
   </div>;
 }
