@@ -1,35 +1,20 @@
-# Proton Medic 0.4.4
+# Proton Medic v0.4.4 — native Linux build
 
-This release focuses on native Linux compilation and executable verification.
-Consult TEST-REPORT-v0.4.4.md for the final packaging and runtime outcome.
+## Fixed
 
-## Changes
+- Corrected Rust ownership handling in Proton Advisor while preserving diagnostic evidence and recommendation order.
+- Added `log-unreadable` to the frontend launch-status type.
+- Aligned the minimum Rust requirement with the locked Tauri dependencies.
+- Used one release codegen unit for the application crate to resolve release object-generation failures.
+- Added the DEB dependency on glibc 2.39 or newer.
 
-- Fix Rust E0505 in Proton Advisor: evaluate whether diagnostic evidence
-  indicates a system problem before transferring evidence into the result.
-  No evidence cloning or changes to recommendation precedence are needed.
-- Fix TypeScript TS2367 by including the backend's `log-unreadable` status in
-  the frontend LaunchResult contract.
-- Add regressions for system-error evidence preservation, frontend/backend
-  launch-status parity, and the Rust version preflight boundary.
-- Add Cargo and npm lockfiles, use locked Cargo operations and npm CI, and
-  pin the CI Rust version to the toolchain used for this validation.
-- Require Rust >=1.90 in the manifest and preflight, matching locked Tauri.
-- Configure one release codegen unit for the application crate following
-  repeated empty-object failures with default parallel code generation.
-- Add reproducible build instructions and an optional native GUI smoke
-  capture script with an isolated disposable Steam library.
+## Added
 
-## Preserved behavior
+- Cargo and npm lockfiles.
+- A pinned CI Rust toolchain.
+- Regressions for evidence preservation, launch-status contracts, and Rust version checks.
+- Reproducible build instructions and a desktop smoke-test script.
 
-The UI components and styles are unchanged. Steam discovery, diagnostics,
-Proton auto-selection, game launch observation, repairs, backups, and rollback
-modules are retained. Only Advisor ownership handling and a frontend type
-union change application source behavior at compile time; the recommendation
-logic and safety/consent checks are preserved.
+The package version is 0.4.4; this version retains the older sidebar label. Later releases update the visible version.
 
-The sidebar's existing hardcoded `v0.4.0` label is retained with the supplied
-UI; package and executable metadata identify this build as 0.4.4. This cosmetic
-label should be made metadata-driven in a subsequent UI maintenance change.
-
-The original 0.4.3 archive is included unchanged in the delivery backup.
+See [TEST-REPORT-v0.4.4.md](TEST-REPORT-v0.4.4.md) for test and packaging results.

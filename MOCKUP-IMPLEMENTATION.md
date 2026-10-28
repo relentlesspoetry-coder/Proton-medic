@@ -1,19 +1,9 @@
-# Blue glass concept implementation
+# Blue glass interface
 
-The home screen now follows the approved concept's headline, sidebar, action
-cards, compact status strip, game rows and blue landscape backdrop. A bundled
-background asset avoids external requests. Existing capabilities and consent
-checks remain. Responsive layouts adapt below 1000 and 680 pixels.
+The home screen includes sidebar navigation, action cards, a compact status strip, game rows, and a bundled landscape backdrop.
 
-Intentional differences: real scan counts, real game names, real diagnostic
-states and generic game thumbnails replace fictional mockup data. No fabricated
-Steam library or game artwork is displayed. Advanced repairs remain expandable.
+Scan results supply the game names, counts, and diagnostic states. Generic thumbnails represent games without artwork. Advanced repairs and backups open from each game's details.
 
-The included release.log records actual executed verification. Pixel-identical
-appearance is not verified: a rendered desktop comparison remains blocked in
-this environment. The background is a new matching asset, not the exact original
-mockup landscape. No claim of exact pixel equivalence or desktop visual QA is made.
+Responsive layouts adjust the cards, metrics, navigation, and game rows for smaller windows. The background is bundled with the app and requires no external image requests.
 
-The included DEB retains application version 0.6.0 and contains this updated UI.
-It targets Ubuntu 24.04-class amd64 systems, not every Linux distribution.
-The previous blue-glass source delivery is preserved in backup/.
+This interface was introduced in the v0.6.0 source update. Later layout changes are listed in the versioned release notes.

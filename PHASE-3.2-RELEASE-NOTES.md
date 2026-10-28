@@ -1,12 +1,15 @@
-# Phase 3.2 — Automatic Proton Selection (candidate build)
+# Proton Medic v0.3.2 — automatic Proton selection
 
-This update implements per-game compatibility-tool selection, not merely a recommendation.
+## Added
 
-- UI: opt-in automatic selection in Settings, one-click selection in game details, real status feedback and safety disclosure; clean approved dashboard retained.
-- Advisor: installed Proton versions ranked from Steam configuration and log evidence, skipping missing installations and clear system-level errors.
-- Native: validated scanned App ID / library, freshness gate (48 hours), exact tool ID from custom manifest where available, Steam-running blocker, minimal VDF modification, config backup, atomic write, preservation of other mapping entries, and no arbitrary path inputs.
-- Native tests added for inserting and changing mappings, preserving comments and defaults, avoiding unnecessary rewrites, rejecting unsafe IDs, handling fresh Steam config, custom GE identifiers, and atomic backup/write.
-- Browser smoke tests: 22 passed, 0 failed, mocked backend.
-- Native compilation, real Steam integration, and filesystem tests: **not run** due to unavailable Rust/Cargo.
+- An opt-in automatic-selection setting and a manual selection action in game details.
+- Ranking of installed Proton versions using Steam configuration and recent log findings.
+- Per-game compatibility mapping updates with configuration backups and atomic writes.
+- Steam-running checks, App ID validation, a 48-hour evidence limit, and support for custom GE tool identifiers.
+- Tests for mapping insertion, replacement, comment preservation, unchanged settings, invalid IDs, and backup creation.
 
-The app **cannot determine the uniquely correct Proton version from a failure log alone**. For game-specific proof it must launch and observe success (planned). This release chooses a plausible installed candidate and applies it safely after the user enables the feature. Automatic game launch / switching between versions is not included.
+Selection changes only the selected game's mapping and preserves unrelated entries. System-level errors are shown for review instead of prompting a Proton switch. This version selects an installed candidate; it does not cycle through versions or launch games automatically.
+
+## Validation
+
+22 browser smoke tests passed with a simulated backend. Native test execution was not recorded for this version.

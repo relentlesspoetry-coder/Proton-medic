@@ -1,48 +1,55 @@
 # Proton Medic
 
-A Linux desktop application for investigating gaming problems, inspecting Proton logs, selecting installed compatibility tools, and trying backed-up, supported repairs.
+Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-Current development release: **0.6.7**. Built with Rust, Tauri 2, React, and TypeScript.
+**Latest release:** [v0.6.6](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)  
+**Development version:** v0.6.7
 
 ## Features
 
-- Native and Flatpak Steam discovery, game libraries, and installed Proton tools.
-- Log analysis, Vulkan/system diagnostics, and evidence-based Proton recommendations.
-- Approved game launch checks that work independently of automatic log setup.
-- Per-game logging setup when Steam configuration can be safely edited.
-- Optional monitoring of new logs and supported backed-up configuration fixes.
-- Repair backups and selective rollback; no destructive automatic repair.
-- Trusted Windows `.exe` installer support using an existing Wine or Proton runtime.
-- Blue glass interface with bundled fonts to avoid problematic system-font enumeration.
-- A header update button with the current app version beneath it for signed GitHub release packages.
+- Find native and Flatpak Steam installations, game libraries, and installed Proton tools.
+- Analyze Proton logs and check Vulkan and system information.
+- Recommend installed compatibility tools based on game settings and log findings.
+- Launch selected Steam games and inspect new logs.
+- Configure per-game Proton logging and monitor logs for changes.
+- Apply supported configuration fixes with backups and selective rollback.
+- Run trusted Windows `.exe` installers using an installed Wine or Proton runtime.
+- Check for signed GitHub updates when requested.
+- Use a blue glass interface with bundled fonts.
 
-A successful launcher command or clean log does not prove gameplay works. Unsupported anti-cheat, DRM, missing system components, and game-specific failures may require publisher support or manual investigation. Proton Medic does not bypass anti-cheat or guarantee every Windows game will work.
+In v0.6.7, the update button appears at the top right on every page, with the app version directly below it.
 
-## Linux support
+## Install
 
-The native amd64 DEB is built on Ubuntu 24.04 and requires glibc 2.39 or newer plus the package's GTK/WebKit dependencies. Zorin OS 18 is the current user test target. Universal distro support and Steam Deck packaging are goals, not verified guarantees. Windows installers execute user-selected programs; Wine prefixes are not security sandboxes.
+Download the amd64 DEB from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases), then install it with your package manager. Existing installations can check for updates in the app.
 
-## Development
+**Requirements:** x86_64 Linux compatible with Ubuntu 24.04, glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. The DEB declares its package dependencies.
 
-Install Rust 1.99.1 and Node.js 22 or newer, plus the native packages listed by:
+## Build
+
+Install Rust 1.99.1, Node.js 22 or newer, and the dependencies listed in [BUILDING.md](BUILDING.md).
 
 ```bash
-bash scripts/build-zorin.sh --help
 npm ci
 bash scripts/build-zorin.sh --check
 bash scripts/build-zorin.sh --build
 ```
 
-The build gate runs tests against disposable fixtures and builds the actual Rust/Tauri application. It does not launch real Steam games or change a real Steam library.
+Use `npm run dev` for the frontend or `npm run tauri -- dev` for the desktop app.
 
-For frontend development use `npm run dev`; for the desktop app use `npm run tauri -- dev`.
+## How repairs and updates work
 
-## Releases and verification
+Scans and log analysis stay on your computer. Configuration changes preserve backups and require Steam to be closed. Game launches and manual repairs require approval. Automatic fixes are optional and limited to supported log findings.
 
-See [GITHUB-RELEASES.md](GITHUB-RELEASES.md) for signed updates and CI setup, and [RELEASE-v0.6.6.md](RELEASE-v0.6.6.md) for the published v0.6.6 verification report. The v0.6.7 header changes are described in [RELEASE-v0.6.7.md](RELEASE-v0.6.7.md). Earlier release reports in the source are historical.
+Update checks contact GitHub only when requested. Packages are signature-verified before installation. System package installation may request administrator approval.
 
-Private signing keys are not included in this repository. Keep the separately supplied maintainer key backup secure.
+Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings help diagnose a game; the player confirms whether it runs correctly. Windows installers run with your user permissions, so use trusted files.
 
-## Privacy and safety
+## Documentation
 
-Game scans and log analysis stay local. Update checks contact GitHub only when requested. Game repair actions preserve backups and require the applicable approval and Steam-closed checks. System package installation may request administrator approval.
+- [Build instructions](BUILDING.md)
+- [Signed releases and updater setup](GITHUB-RELEASES.md)
+- [v0.6.6 changes](RELEASE-v0.6.6.md)
+- [v0.6.7 changes](RELEASE-v0.6.7.md)
+
+Earlier release notes and test reports describe their respective versions.

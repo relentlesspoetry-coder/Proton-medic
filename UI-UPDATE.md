@@ -1,14 +1,13 @@
 # Blue glass UI update
 
-Frontend update based on v0.6.0. Previous complete delivery preserved in backup.
+## Changed
 
-Home actions: scan games, open a game for help, install a Windows game.
-Advanced repairs/backups remain available in an expandable game-detail section.
-Blue translucent surfaces, opaque fallback, larger controls, keyboard focus,
-active navigation semantics, dark form fields, and narrow-layout adjustments.
-Existing native capabilities and consent checks retained.
+- Added blue translucent surfaces and an opaque fallback.
+- Added a bundled landscape background.
+- Organized the home screen around Scan games, Help with a game, and Install a Windows game.
+- Kept advanced repairs and backups in expandable game details.
+- Improved control sizes, keyboard focus, active navigation, dark form fields, and narrow-window layouts.
 
-Validation: npm test and npm run build executed; see included logs.
-Native packaging was not rerun for this UI-only source delivery. No updated
-DEB is included. Native GUI appearance and Steam Deck usability still need
-visual acceptance testing on a supported desktop.
+## Checks
+
+Frontend tests and the production build passed for this source update.

@@ -1,52 +1,44 @@
-# Native Linux build
+# Build Proton Medic on Linux
 
-The v0.6.1 validation environment is a disposable Ubuntu 24.04 x86_64
-container with no host Steam library mounted. Rust/Cargo live in a separate
-workspace-local toolchain. Node.js 24.22.1 comes from the execution runtime.
-See RELEASE-v0.6.1.md for the actual outcome and limitations.
+## Requirements
 
-## Reproduce on Ubuntu 24.04
+- Ubuntu 24.04-compatible x86_64 development system
+- Rust 1.99.1
+- Node.js 22 or newer
+- GTK 3 and WebKitGTK 4.1 development libraries
 
-Install the native dependencies in a disposable VM/container or development machine:
+Install the native dependencies:
 
-```sh
+```bash
 sudo apt-get update
 sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev \
   curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 ```
 
-Install Node.js 24.22.1 and Rust 1.99.1 using their official distributions.
-With rustup already installed:
+## Build and test
 
-```sh
+```bash
 rustup toolchain install 1.99.1 --profile minimal
 rustup override set 1.99.1
 npm ci
-./scripts/build-zorin.sh --check
-CARGO_BUILD_JOBS=2 ./scripts/build-zorin.sh --build
+bash scripts/build-zorin.sh --check
+CARGO_BUILD_JOBS=2 bash scripts/build-zorin.sh --build
 ```
 
-The release gate runs frontend checks, the IPC status contract regression,
-Python disposable launcher fixtures, preflight regressions, the actual Cargo
-unit tests, TypeScript/Vite production compilation, and Tauri release bundling.
-Cargo uses `--locked`; npm CI uses `package-lock.json`. The locked Tauri
-version requires at least Rust 1.90. Only Rust 1.99.1 was tested here.
+The build gate checks prerequisites, runs the frontend and Rust suites, checks launcher fixtures and updater manifests, builds the frontend, and packages the native application as a DEB. Cargo uses the lockfile, and `npm ci` installs the locked JavaScript dependencies.
 
-Output: `src-tauri/target/release/bundle/deb/*.deb`.
+Tests use temporary Steam-style fixtures and fake launchers. They do not require Steam credentials or modify an installed game library.
 
-The tests do not require real games, Steam credentials, or changes to a real
-Steam installation. Rust fixture tests cover discovery, diagnosis, selection,
-launch observation, backup creation, and rollback. Python launcher fixtures
-are independent protocol checks; they are not a replacement for Rust tests.
+The DEB is written to `src-tauri/target/release/bundle/deb/`. It requires glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1.
 
-## Platform scope
+## Development
 
-This build targets Debian-family x86_64 Linux with GTK 3 and WebKitGTK 4.1.
-A `.deb` is not a native SteamOS installer. Steam Deck SteamOS packaging and
-hardware/gameplay validation remain separate work; do not modify SteamOS's
-read-only system to install this package. Ubuntu/Zorin versions with older
-runtime libraries need a compatible build environment and separate testing.
+- `npm run dev`: frontend development server
+- `npm run typecheck`: TypeScript checking
+- `npm test`: frontend, startup, and command-contract tests
+- `npm run tauri -- dev`: desktop development
+- `cargo test --locked --manifest-path src-tauri/Cargo.toml`: Rust tests
 
-Historical PHASE reports describe older releases; the v0.6.1 report is the
-current validation record. GitHub Actions configuration is provided, but a
-remote Actions run is not implied by local validation.
+## Release packages
+
+See [GITHUB-RELEASES.md](GITHUB-RELEASES.md) for signing and publishing. The current distribution format is an amd64 DEB. SteamOS needs a separate packaging path; do not disable its read-only system protection to install this package.

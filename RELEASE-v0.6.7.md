@@ -1,29 +1,24 @@
-# Proton Medic v0.6.7 — header updates
+# Proton Medic v0.6.7
 
-## Changes
+Status: development build.
 
-- Moved the update button to the top-right of the main app, visible on every page.
-- Shows the installed app version immediately below the update button, sourced from package.json.
-- Keeps one updater mounted across navigation; consent, signed updates, progress, errors, and update help remain available.
-- Added a compact details panel with close/reopen controls; closing it does not cancel an active update or permit duplicate installation.
-- Preserved the blue glass theme and all game, diagnostic, and repair features.
-- Native startup version now comes from Cargo package metadata.
+## Changed
 
-## Backup
+- Moved **Check for updates** to the top-right corner on every page.
+- Added the installed app version directly below the update button.
+- Added a compact update-details panel that can be opened and closed.
+- Kept update progress active across navigation and when the details panel is closed.
+- Preserved installation consent, release notes, progress messages, error details, and signature verification.
+- Read version labels from package metadata to keep them aligned with each build.
 
-Source before these changes is preserved on `backup/v0.6.6-before-header-update` at `dee147cf99ef8d07ebb783a134415e62ff4ab2de`. The published v0.6.6 release remains available.
+The blue glass theme, game features, diagnostics, repairs, backups, and rollback remain available.
 
-## Verification
+## How it works
 
-[GitHub validation run 40772658658](https://github.com/relentlesspoetry-coder/Proton-medic/actions/runs/40772658658) passed for source commit `dcdeecdb3b0572d2eae8240c748aaa138eb84a10`:
+Click **Check for updates** to look for a newer stable release. Use the information button beside it to open update help without checking GitHub. Closing the details panel leaves an active update running and prevents duplicate installation requests.
 
-- 92 Rust tests, 31 React tests, five Node contract/startup tests, seven disposable-game-fixture tests, five build-gate tests, and five release-manifest tests passed: 145 executable tests total.
-- 22 source structure checks passed.
-- TypeScript checking and the Vite production bundle passed.
-- Optimized Rust/Tauri compilation and native amd64 DEB packaging passed; the CI artifact was uploaded successfully.
+## Validation
 
-These checks ran on GitHub's Ubuntu 24.04 runner. No local build, installation, desktop visual inspection, live updater installation, or game-launch result is claimed for v0.6.7. This CI package has not been signed or published as a release.
+[Linux validation](https://github.com/relentlesspoetry-coder/Proton-medic/actions/runs/40772658658): 145 tests and 22 source checks passed. TypeScript checking, the frontend production build, native compilation, and amd64 DEB packaging passed.
 
-## Pending asset
-
-The requested program logo was not attached to the request. Logo integration is pending the original image. No replacement logo was invented. This version has not been published as a release.
+Source before this update is preserved on `backup/v0.6.6-before-header-update`.

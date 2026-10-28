@@ -1,9 +1,13 @@
-# Proton Medic v0.4.2
+# Proton Medic v0.4.2 — fresh launch logs
 
-**Native validation readiness and launch log reliability update.**
+## Fixed
 
-- Fixes choosing a stale log instead of the fresh log produced by the current Steam launch probe.
-- Prevents unreadable fresh logs from being presented as having no recognized errors.
-- Adds disposable Rust regression tests for mixed native/Flatpak log locations and symlink rejection.
-- Preserves all earlier features and approved UI.
-- No native build or Rust unit test execution was possible in the current environment; see test report.
+- Select logs changed during the current launch observation, preventing an unrelated newer timestamp from masking the new log.
+- Report unreadable fresh logs as `log-unreadable`.
+- Exclude symlinked log files from launch observation.
+
+## Added
+
+Rust regressions for mixed native/Flatpak log locations and symlink rejection.
+
+See [PHASE-4.2-TEST-REPORT.md](PHASE-4.2-TEST-REPORT.md) for test results.

@@ -1,7 +1,15 @@
-# Proton Medic v0.4.1 — Native Validation Preparation
+# Proton Medic v0.4.1 — launch test reliability
 
-This is a targeted source + testing update to v0.4.0. It preserves the approved clean interface, all existing Steam scanning/diagnostic features, automatic Proton selection, backup archive, and rollback code. No installable native binary is claimed.
+## Fixed
 
-Changes: repair fixture constructor compilation fix; improved launch-log testing against the exact disposable home; corrected error classification expectation; two more Rust launch-fixture tests; seven runnable offline fake-Steam protocol tests; a combined native validation script; an unexecuted GitHub Actions native Linux CI workflow; evidence-based test report.
+- Added the missing `configured_tool` field to a repair test fixture.
+- Analyzed launch logs using the selected temporary home directory.
+- Corrected the expected result for Vulkan device-loss evidence.
 
-See PHASE-4.1-TEST-REPORT.md for exact passed, blocked, and unexecuted stages.
+## Added
+
+- Rust tests for device-loss findings and fresh logs without recognized errors.
+- Seven offline fake-Steam protocol tests.
+- A combined native validation command and GitHub Actions configuration.
+
+See [PHASE-4.1-TEST-REPORT.md](PHASE-4.1-TEST-REPORT.md) for test results.

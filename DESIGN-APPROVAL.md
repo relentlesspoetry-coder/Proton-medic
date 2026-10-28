@@ -1,5 +1,12 @@
-# Approved UI reference
+# Interface design
 
-The blue glass concept approved on 28 October 2026 supersedes the earlier charcoal/green theme. Preserve the sidebar, three primary actions, compact status strip and game list. Real results replace illustrative counts and fictional games.
+Proton Medic uses a blue glass theme with a landscape backdrop, sidebar navigation, three primary home actions, compact status metrics, and a game list.
 
-Base component rules live in src/style.css. Theme and responsive overrides live in src/theme.css, imported afterward by main.tsx. The bundled landscape is in src/assets. Retain keyboard focus, reduced-transparency fallback, consent controls, and expandable repair tools. Exact visual matching still requires native desktop acceptance.
+The interface displays scanned game names, counts, and diagnostic states. Advanced repair and backup controls remain expandable.
+
+- Base component styles: `src/style.css`
+- Theme and responsive styles: `src/theme.css`
+- Bundled images: `src/assets/`
+- Header updates and version label: `src/AppUpdater.tsx`
+
+Keep theme rules grouped by component, followed by responsive breakpoints. Preserve keyboard focus indicators, reduced-motion and reduced-transparency settings, readable opaque fallbacks, and consent controls.
