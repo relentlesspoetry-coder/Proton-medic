@@ -141,7 +141,7 @@ async fn analyze_windows_game(id: String) -> Result<windows_games::LogReport, St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    eprintln!("[Proton Medic startup] Native process 0.6.6 starting");
+    eprintln!("[Proton Medic startup] Native process {} starting", env!("CARGO_PKG_VERSION"));
     let _font_runtime=match font_runtime::initialize(){Ok(guard)=>guard,Err(error)=>{eprintln!("[Proton Medic startup] Font isolation failed: {error}");return;}};
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

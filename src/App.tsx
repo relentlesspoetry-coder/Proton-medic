@@ -185,9 +185,10 @@ export default function App() {
     <aside className="pm-sidebar">
       <div className="pm-brand"><div className="pm-logo"><Activity size={25} strokeWidth={2.7}/></div><div><strong>Proton Medic</strong><span>Linux gaming</span></div></div>
       <nav aria-label="Main navigation" className="pm-nav">{MENU.map(({ page: id, label, icon: Icon }) => <button className={`pm-nav-link ${page === id ? 'active' : ''}`} aria-current={page === id ? 'page' : undefined} type="button" key={id} onClick={() => setPage(id)}><Icon size={19}/><span>{label}</span></button>)}</nav>
-      <div className="pm-side-bottom"><div><ShieldCheck size={17}/><span><strong>Your scans stay local</strong><small>Scans read-only. Repairs opt-in.</small></span></div><span className="pm-version">Proton Medic v0.6.6</span></div>
+      <div className="pm-side-bottom"><div><ShieldCheck size={17}/><span><strong>Your scans stay local</strong><small>Scans read-only. Repairs opt-in.</small></span></div></div>
     </aside>
     <main className="pm-main">
+      <AppUpdater/>
       {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
       {page === 'home' && <>
         <div className="pm-welcome"><div><p className="pm-eyebrow">YOUR GAMING COMPANION</p><h1>Get back to playing.</h1><p>Choose a game. Find the problem. Take the next step.</p></div><div className="pm-hero-art" aria-hidden="true"><div className="pm-ring pm-ring-one"/><div className="pm-ring pm-ring-two"/><Gamepad2 size={105} strokeWidth={1.1}/></div></div>
@@ -235,7 +236,7 @@ export default function App() {
           {vulkan && <div className="pm-probe"><StatusTag tone={vulkan.status === 'available' ? 'ok' : 'warning'} label={vulkan.status === 'available' ? 'Vulkan probe succeeded' : `Vulkan: ${vulkan.status}`}/><p>{vulkan.detail}</p><details><summary>Technical output</summary><pre>{vulkan.output || 'No output returned.'}</pre></details></div>}
         </section><details className="pm-section pm-technical"><summary>Advanced system details <ChevronDown size={17}/></summary>{report && <div className="pm-system-advanced"><h3>Graphics devices</h3>{report.system.gpuDevices.map((g,i) => <pre key={i}>{g}</pre>)}<h3>Vulkan ICD files</h3>{report.system.icdManifests.map((v,i) => <pre key={i}>{v}</pre>)}{report.system.notes.map((n,i) => <p key={i}>{n}</p>)}</div>}</details></>}
 
-      <div hidden={page !== 'settings'}><div className="pm-page-title"><div><h1>Settings</h1><p>Updates, automatic fixes, and app preferences.</p></div></div><AppUpdater/></div>
+      {page === 'settings' && <div className="pm-page-title"><div><h1>Settings</h1><p>Automatic fixes and app preferences. App updates are available above.</p></div></div>}
       {page === 'settings' && <><section className="pm-section pm-auto-settings"><div className="pm-section-heading"><div><h2>Automatic Log Fixes</h2><p>Proton Medic chooses and configures an alternative for games with recent compatibility errors.</p></div></div>
           <label className="pm-auto-toggle"><input type="checkbox" checked={autoMode} onChange={event => toggleAutoMode(event.target.checked)}/><span><strong>Automatically fix supported new log failures</strong><small>Opt in once. Changes are made per game only, while Steam is fully closed. Existing settings are backed up. Missing Vulkan drivers and other system problems are not treated as Proton version issues.</small></span></label>
           {autoMessage && <div className="pm-auto-message" role="status">{autoMessage}</div>}

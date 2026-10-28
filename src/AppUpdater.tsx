@@ -1,9 +1,12 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { check, type Update } from '@tauri-apps/plugin-updater';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download, Info, RefreshCw, X } from 'lucide-react';
+import { version as appVersion } from '../package.json';
 
 /** Kept mounted across navigation so an active download cannot be started twice. */
 export function AppUpdater() {
+  const panelId = useId();
+  const [expanded, setExpanded] = useState(false);
   const candidate = useRef<Update | null>(null);
   const locked = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -17,6 +20,7 @@ export function AppUpdater() {
 
   const checkNow = async () => {
     if (locked.current || installed) return;
+    setExpanded(true);
     locked.current = true; setBusy(true); setError(''); setTechnicalError(''); setApproved(false);
     setVersion(''); setNotes(''); setMessage('Checking GitHub…');
     try {
@@ -58,10 +62,18 @@ export function AppUpdater() {
     } finally { locked.current = false; setBusy(false); }
   };
 
-  return <section className="pm-section pm-updater" aria-label="App updates">
+  return <header className="pm-app-header">
+    <div className="pm-update-controls">
+      <button type="button" className="pm-button pm-button-secondary pm-update-info" aria-label="About app updates" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(value => !value)}><Info size={17}/></button>
+      <div className="pm-update-actions">
+        <button type="button" className="pm-button pm-button-secondary" disabled={busy || installed} aria-busy={busy} aria-controls={panelId} onClick={() => void checkNow()}><RefreshCw size={16} className={busy ? 'pm-spin' : ''}/>Check for updates</button>
+        <span className="pm-header-version">Version {appVersion}</span>
+      </div>
+    </div>
+    <section id={panelId} hidden={!expanded} className="pm-section pm-updater" aria-label="App updates">
     <div className="pm-section-heading">
       <div className="pm-update-heading"><span className="pm-update-icon" aria-hidden="true"><Download/></span><div><h2>App updates</h2><p>Keep Proton Medic up to date.</p></div></div>
-      <button className="pm-button pm-button-secondary" disabled={busy || installed} onClick={() => void checkNow()}><RefreshCw size={16}/>Check for updates</button>
+      <button type="button" className="pm-button pm-button-secondary pm-update-info" aria-label="Close update details" onClick={() => setExpanded(false)}><X size={17}/></button>
     </div>
     {message && message !== 'Check GitHub for the latest stable release.' && <div role="status" className="pm-update-status"><p>{message}</p></div>}
     {error && <div role="alert" className="pm-update-status"><p>{error}</p><details className="pm-update-details"><summary>Technical details</summary><pre>{technicalError}</pre></details></div>}
@@ -72,5 +84,6 @@ export function AppUpdater() {
     </>}
     <p className="pm-update-footer">Signed updates from GitHub. You choose when to install.</p>
     <details className="pm-update-details"><summary>How updates work</summary><p>Checks contact GitHub only when requested. Downloads are signature-verified before installation. System packages may require administrator approval.</p></details>
-  </section>;
+    </section>
+  </header>;
 }

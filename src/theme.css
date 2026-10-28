@@ -39,7 +39,6 @@ body { background: #071322; }
 .pm-side-bottom>div { border: 0; padding: 8px; color: #9ab6d4; }
 .pm-side-bottom strong { font-size: 12px; font-weight: 500; }
 .pm-side-bottom small { font-size: 11px; line-height: 1.5; }
-.pm-version { display: block; margin-top: 14px; color: #8ca8c7; font-size: 11px; }
 .pm-main { width: 100%; min-width: 0; max-width: 1320px; margin: 0 auto; padding: 32px 20px 40px 0; }
 .pm-page-title { margin-bottom: 24px; }
 .pm-page-title h1 { font-size: 30px; letter-spacing: -.8px; }
@@ -106,6 +105,12 @@ input[type=checkbox] { accent-color: #9bd0ff; }
 .pm-technical>summary { min-height: 32px; align-items: center; }
 .pm-technical[open]>summary { margin-bottom: 16px; }
 code, pre { overflow-wrap: anywhere; }
+.pm-app-header { display: flex; flex-direction: column; align-items: flex-end; gap: 16px; margin-bottom: 24px; }
+.pm-update-controls { display: flex; align-items: flex-start; gap: 8px; max-width: 100%; }
+.pm-update-actions { display: flex; flex-direction: column; align-items: center; gap: 7px; min-width: 0; }
+.pm-header-version { color: var(--pm-muted); font-size: 12px; line-height: 1.5; }
+.pm-update-info { width: 42px; padding: 0; flex: none; justify-content: center; }
+.pm-app-header .pm-updater { width: 100%; max-width: 620px; margin: 0; }
 .pm-update-heading { display: flex; align-items: center; gap: 12px; }
 .pm-update-icon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 12px; background: #1d3e60; color: #b0daff; }
 .pm-update-icon svg { width: 21px; height: 21px; }

@@ -59,3 +59,25 @@ it('keeps raw update errors in a collapsed technical-details disclosure',async()
   expect(details?.open).toBe(false);
   expect(details?.textContent).toContain('Could not fetch a valid release JSON');
 });
+
+it('opens update help without contacting GitHub',()=>{
+  render(<AppUpdater/>);
+  expect(screen.queryByRole('region',{name:'App updates'})).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'About app updates'}));
+  expect(screen.getByText('How updates work')).toBeTruthy();
+  expect(check).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Close update details'}));
+  expect(screen.queryByRole('region',{name:'App updates'})).toBeNull();
+});
+
+it('retains an active install when update details are closed and reopened',async()=>{
+  const value=update();let finish!:()=>void;
+  value.downloadAndInstall.mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve;}));
+  await findUpdate(value);fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
+  fireEvent.click(screen.getByRole('button',{name:'Close update details'}));
+  fireEvent.click(screen.getByRole('button',{name:'About app updates'}));
+  expect((screen.getByRole('button',{name:'Download & install 0.6.6'}) as HTMLButtonElement).disabled).toBe(true);
+  expect(value.downloadAndInstall).toHaveBeenCalledTimes(1);
+  finish();await screen.findByText(/Update installed\./);
+});

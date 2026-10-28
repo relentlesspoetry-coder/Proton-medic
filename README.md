@@ -2,7 +2,7 @@
 
 A Linux desktop application for investigating gaming problems, inspecting Proton logs, selecting installed compatibility tools, and trying backed-up, supported repairs.
 
-Current development release: **0.6.6**. Built with Rust, Tauri 2, React, and TypeScript.
+Current development release: **0.6.7**. Built with Rust, Tauri 2, React, and TypeScript.
 
 ## Features
 
@@ -14,7 +14,7 @@ Current development release: **0.6.6**. Built with Rust, Tauri 2, React, and Typ
 - Repair backups and selective rollback; no destructive automatic repair.
 - Trusted Windows `.exe` installer support using an existing Wine or Proton runtime.
 - Blue glass interface with bundled fonts to avoid problematic system-font enumeration.
-- A Settings update button for signed GitHub release packages.
+- A header update button with the current app version beneath it for signed GitHub release packages.
 
 A successful launcher command or clean log does not prove gameplay works. Unsupported anti-cheat, DRM, missing system components, and game-specific failures may require publisher support or manual investigation. Proton Medic does not bypass anti-cheat or guarantee every Windows game will work.
 
@@ -39,7 +39,7 @@ For frontend development use `npm run dev`; for the desktop app use `npm run tau
 
 ## Releases and verification
 
-See [GITHUB-RELEASES.md](GITHUB-RELEASES.md) for signed updates and CI setup, and [RELEASE-v0.6.6.md](RELEASE-v0.6.6.md) for the current verification report. Earlier release reports in the source are historical.
+See [GITHUB-RELEASES.md](GITHUB-RELEASES.md) for signed updates and CI setup, and [RELEASE-v0.6.6.md](RELEASE-v0.6.6.md) for the published v0.6.6 verification report. The v0.6.7 header changes are described in [RELEASE-v0.6.7.md](RELEASE-v0.6.7.md). Earlier release reports in the source are historical.
 
 Private signing keys are not included in this repository. Keep the separately supplied maintainer key backup secure.
 
