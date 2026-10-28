@@ -54,4 +54,3 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.6 changes](RELEASE-v0.6.6.md)
 - [v0.6.7 changes](RELEASE-v0.6.7.md)
 
-Earlier release notes and test reports describe their respective versions.

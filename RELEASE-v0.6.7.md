@@ -9,6 +9,8 @@ Status: development build.
 
 ## Changed
 
+- Removed obsolete project reports, unused build configuration, and unused diagnostic-screen code.
+
 - Moved **Check for updates** to the top-right corner on every page.
 - Added the installed app version directly below the update button.
 - Added a compact update-details panel that can be opened and closed.

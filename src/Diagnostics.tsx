@@ -1,5 +1,5 @@
-import { AlertTriangle, Activity, CircleHelp, ClipboardList, Cpu, FileText, HardDrive, Monitor, SearchCheck, ShieldCheck, Terminal } from 'lucide-react';
-import type { DiagnosticsReport, Finding, Game, GameDiagnostics, VulkanProbe } from './types';
+import { AlertTriangle, Activity, CircleHelp, ClipboardList, SearchCheck } from 'lucide-react';
+import type { Finding, GameDiagnostics } from './types';
 
 function dateLabel(seconds: number | null): string {
   return seconds == null ? 'Unknown' : new Date(seconds * 1000).toLocaleString();
@@ -50,67 +50,4 @@ export function GameDiagnosis({ result }: { result: GameDiagnostics | null }) {
     {result.notes.map((note, index) => <p className="diag-note" key={index}>{note}</p>)}
     {result.findings.map(finding => <FindingView key={finding.code} finding={finding}/>)}
   </div>;
-}
-
-export function DiagnosticsView({
-  report, games, loading, probe, probing, onAnalyze, onProbe, onSelectGame,
-}: {
-  report: DiagnosticsReport | null;
-  games: Game[];
-  loading: boolean;
-  probe: VulkanProbe | null;
-  probing: boolean;
-  onAnalyze: () => void;
-  onProbe: () => void;
-  onSelectGame: (game: Game) => void;
-}) {
-  const analyzed = report?.games.filter(game => game.logPath !== null).length ?? 0;
-  const flagged = report?.games.filter(game => game.findings.length > 0).length ?? 0;
-  return <>
-    <div className="page-header"><div className="eyebrow"><span className="accent-line"/> PHASE 2 / DIAGNOSTICS</div>
-      <h1>Proton diagnostics</h1>
-      <p>Analyze existing Proton logs and inspect host graphics configuration. Findings are indicators, not confirmed root causes. All actions are read-only.</p>
-    </div>
-    <div className="diagnostics-toolbar">
-      <button type="button" className="button primary" disabled={loading} onClick={onAnalyze}><FileText size={16}/>{loading ? 'Analyzing...' : 'Analyze Proton logs'}</button>
-      <button type="button" className="button secondary" disabled={probing} onClick={onProbe}><Cpu size={16}/>{probing ? 'Checking Vulkan...' : 'Run Vulkan probe'}</button>
-    </div>
-    <div className="diag-metrics">
-      <div><span>Games inspected</span><strong>{report?.games.length ?? '—'}</strong></div>
-      <div><span>Logs discovered</span><strong>{report ? analyzed : '—'}</strong></div>
-      <div><span>Games with findings</span><strong>{report ? flagged : '—'}</strong></div>
-    </div>
-    <section className="surface-panel diag-section">
-      <div className="section-heading"><div><span className="eyebrow">HOST ENVIRONMENT</span><h2>Graphics & system inspection</h2></div><Monitor size={20}/></div>
-      {!report ? <div className="diag-section-content"><p className="diag-neutral">Run Analyze Proton logs to inspect GPU identity, host Vulkan ICD files, and system metadata without running external processes.</p></div> : <div className="diag-section-content">
-        <div className="system-grid"><div><span>Distribution</span><strong>{report.system.os}</strong></div><div><span>Kernel</span><strong>{report.system.kernel}</strong></div><div><span>Architecture</span><strong>{report.system.arch}</strong></div><div><span>vulkaninfo</span><strong>{report.system.vulkaninfoPath ? 'Available' : 'Not installed / not in PATH'}</strong></div></div>
-        <h3>GPU devices ({report.system.gpuDevices.length})</h3>
-        {report.system.gpuDevices.length ? report.system.gpuDevices.map((item, i) => <code className="diag-line" key={i}>{item}</code>) : <p className="diag-neutral">No PCI GPU devices were identified through /sys/class/drm in this session.</p>}
-        <h3>Vulkan ICD manifests ({report.system.icdManifests.length})</h3>
-        {report.system.icdManifests.length ? report.system.icdManifests.map((item, i) => <code className="diag-line" key={i}>{item}</code>) : <p className="diag-neutral">No ICD manifests found in the inspected system directories. Flatpak may have a different view.</p>}
-        {report.system.notes.map((note, i) => <p key={i} className="diag-note">{note}</p>)}
-      </div>}
-      {probe && <div className="probe-results">
-        <div className="diag-label-row"><strong>Optional Vulkan probe result</strong><span className={`diagnostic-status ${probe.status === 'available' ? 'no-signatures' : probe.status === 'unavailable' ? 'no-log' : 'unreadable'}`}>{probe.status}</span></div>
-        <p>{probe.detail}</p>
-        {probe.output.trim() && <details className="evidence-details"><summary>View vulkaninfo output (limited)</summary><pre>{probe.output}</pre></details>}
-      </div>}
-    </section>
-    <section className="surface-panel diag-section">
-      <div className="section-heading"><div><span className="eyebrow">LOG REVIEW</span><h2>Game-specific findings</h2></div><HardDrive size={19}/></div>
-      {!report ? <div className="diag-section-content"><p className="diag-neutral"><ShieldCheck size={17}/> No game logs analyzed yet. The scanner never changes your game files.</p></div>
-        : <div className="diagnostic-game-list">
-          {report.games.length === 0 && <div className="diag-section-content"><p className="diag-neutral">No games were found in supported Steam libraries.</p></div>}
-          {report.games.map(result => {
-            const game = games.find(g => g.appId === result.appId && g.libraryPath === result.libraryPath);
-            return <div className="diagnostic-game" key={`${result.libraryPath}:${result.appId}`}>
-              <div className="diagnostic-game-heading"><div><strong>{game?.name ?? `App ${result.appId}`}</strong><span className="mono">Steam {result.appId}</span></div><DiagnosticBadge status={result.status}/></div>
-              <div className="diagnostic-game-foot"><span>{result.findings.length ? `${result.findings.length} signature group(s) detected` : result.logPath ? 'No matching error patterns found' : 'Enable PROTON_LOG to capture evidence'}</span>
-              {game && <button className="text-button" type="button" onClick={() => onSelectGame(game)}>Inspect game →</button>}</div>
-            </div>;
-          })}
-        </div>}
-    </section>
-    <div className="note-box"><Terminal size={16}/><span>No automatic fixes, downloads, telemetry, or game launches. The optional Vulkan probe executes only <code>vulkaninfo --summary</code> with a 6-second timeout; it cannot verify the GPU selected by Steam Runtime.</span></div>
-  </>;
 }
