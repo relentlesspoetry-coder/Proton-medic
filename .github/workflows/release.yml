@@ -2,10 +2,16 @@ name: Signed Linux release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Stable version tag matching the application (e.g. v0.6.6)'
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 jobs:
   release:
@@ -21,7 +27,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
       - name: Validate stable release version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           python3 - <<'PY'
           import json, os, re, tomllib
@@ -44,7 +50,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -60,5 +66,13 @@ jobs:
       - name: Publish release assets after all checks pass
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" release/* --verify-tag --title "Proton Medic $RELEASE_TAG" --generate-notes --latest
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$RELEASE_EVENT" = workflow_dispatch ]; then
+            gh api "repos/$RELEASE_REPOSITORY/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$RELEASE_SHA" > /dev/null
+          fi
+          gh release create "$RELEASE_TAG" release/* --verify-tag --title "Proton Medic $RELEASE_TAG" --notes-file "RELEASE-$RELEASE_TAG.md" --latest
