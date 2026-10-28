@@ -10,9 +10,9 @@ The v0.6.6 app has a Settings → App updates panel. It checks the stable releas
 2. Push the prepared source. Do not upload the separate private signing-key backup, build caches, personal logs, or old source backup archives.
 3. In GitHub Settings → Secrets and variables → Actions, add `TAURI_SIGNING_PRIVATE_KEY`. Paste the complete contents of the separately supplied `proton-medic.key` file. This key has an empty password; `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` may be omitted. Never place the key in a repository file, issue, or release.
 4. Keep a secure offline copy of the private key. The application embeds the matching public key; changing the signing key without a migration prevents existing installations from accepting future releases.
-5. Push the stable tag `v0.6.6` after the source and secret are in place. This runs `.github/workflows/release.yml`.
+5. After the source and secret are in place, either push a matching stable tag or open Actions → Signed Linux release → Run workflow on `main` and enter `v0.6.6`. The manual path validates the version, builds and verifies the signed installer, then creates the tag at the workflow's exact source commit and publishes. It fails if that tag already exists; do not move an existing release tag. Both paths run `.github/workflows/release.yml`.
 
-The initial source push and live release publication were blocked in the development session because the repository was unavailable and the browser was signed out. Local builds and tests are described separately in `RELEASE-v0.6.6.md`.
+On 2026-10-28, GitHub-hosted validation and the signed release workflow passed, and v0.6.6 was published with the DEB, signature, SHA256SUMS, and latest.json. The source before release setup is preserved on `backup/v0.6.6-before-release-setup` at `fffdd4526dda879f92e8febbc4e2fee1537a9184`. The v0.6.6 tag points to `1eb4fefb65d201f6ac8b16adaca41267724b5457`; only the release workflow changed from the backed-up source. Live in-app installation and desktop GUI/gameplay remain unverified. See `RELEASE-v0.6.6.md` for verification details.
 
 ## Future releases
 
