@@ -24,6 +24,6 @@ Click **Check for updates** to look for a newer stable release. Use the informat
 
 ## Validation
 
-[Linux validation](https://github.com/relentlesspoetry-coder/Proton-medic/actions/runs/40772658658): 145 tests and 22 source checks passed. TypeScript checking, the frontend production build, native compilation, and amd64 DEB packaging passed.
+[Linux validation](https://github.com/relentlesspoetry-coder/Proton-medic/actions/runs/40775708785): 145 tests and 23 source checks passed. TypeScript checking, the frontend production build, native compilation, and amd64 DEB packaging passed.
 
 Source before this update is preserved on `backup/v0.6.6-before-header-update`.
