@@ -1,5 +1,7 @@
 # Proton Medic
 
+<p align="center"><img src="src/assets/proton-medic-logo.webp" alt="Proton Medic" width="420" /></p>
+
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
 **Latest release:** [v0.6.6](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)  

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  Activity, AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2,
+  AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2,
   ChevronDown, CircleHelp, Clock3, Cpu, Download,
   Gamepad2, HardDrive, Home, Info, Layers, Monitor,
   RefreshCw, Search, Settings2, ShieldCheck, Wrench, X,
@@ -15,6 +15,7 @@ import { AutoLogMonitor } from './AutoLogMonitor';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
 import { LaunchTest } from './LaunchTest';
+import programLogo from './assets/proton-medic-logo.webp';
 
 type Page = 'windows' | 'home' | 'games' | 'fixes' | 'system' | 'settings';
 type GameFilter = 'all' | 'issues' | 'missing' | 'prefix';
@@ -183,7 +184,7 @@ export default function App() {
 
   return <div className="pm-app">
     <aside className="pm-sidebar">
-      <div className="pm-brand"><div className="pm-logo"><Activity size={25} strokeWidth={2.7}/></div><div><strong>Proton Medic</strong><span>Linux gaming</span></div></div>
+      <div className="pm-brand"><img className="pm-brand-logo" src={programLogo} alt="Proton Medic" width={768} height={512}/></div>
       <nav aria-label="Main navigation" className="pm-nav">{MENU.map(({ page: id, label, icon: Icon }) => <button className={`pm-nav-link ${page === id ? 'active' : ''}`} aria-current={page === id ? 'page' : undefined} type="button" key={id} onClick={() => setPage(id)}><Icon size={19}/><span>{label}</span></button>)}</nav>
       <div className="pm-side-bottom"><div><ShieldCheck size={17}/><span><strong>Your scans stay local</strong><small>Scans read-only. Repairs opt-in.</small></span></div></div>
     </aside>

@@ -24,11 +24,8 @@ body { background: #071322; }
   background: rgba(9, 24, 43, .94);
   overflow-y: auto;
 }
-.pm-brand { padding: 0 9px 32px; gap: 10px; }
-.pm-brand strong { font-size: 20px; letter-spacing: -.6px; white-space: nowrap; }
-.pm-brand span { color: var(--pm-muted); font-size: 12px; }
-.pm-logo { width: 32px; height: 38px; color: #75bfff; background: none; border: 0; box-shadow: none; }
-.pm-logo svg { width: 30px; height: 30px; }
+.pm-brand { padding: 0 6px 24px; justify-content: center; }
+.pm-brand-logo { display: block; width: 100%; max-width: 196px; height: auto; object-fit: contain; }
 .pm-nav { gap: 6px; }
 .pm-nav-link { position: relative; min-height: 48px; padding: 12px 14px; gap: 12px; font-size: 14px; color: #b9cde5; border-radius: 11px; }
 .pm-nav-link svg { width: 20px; height: 20px; flex: none; }
@@ -126,8 +123,6 @@ code, pre { overflow-wrap: anywhere; }
 @media (max-width:1100px) {
   .pm-app { gap: 20px; padding: 12px; }
   .pm-sidebar { flex-basis: 206px; top: 12px; height: calc(100vh - 24px); }
-  .pm-brand { padding-left: 3px; }
-  .pm-brand strong { font-size: 18px; }
   .pm-main { padding: 28px 8px 32px 0; }
   .pm-action-card { padding: 18px; }
   .pm-action-card strong { font-size: 15px; }
@@ -150,6 +145,7 @@ code, pre { overflow-wrap: anywhere; }
   .pm-app { display: block; padding: 8px; }
   .pm-sidebar { position: static; min-height: 0; height: auto; padding: 16px; }
   .pm-brand { padding-bottom: 16px; }
+  .pm-brand-logo { max-width: 180px; }
   .pm-nav { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
   .pm-nav-link { min-height: 44px; font-size: 12px; padding: 10px; gap: 8px; }
   .pm-side-bottom { display: none; }

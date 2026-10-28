@@ -2,6 +2,11 @@
 
 Status: development build.
 
+## Added
+
+- New Proton Medic logo in the sidebar, desktop launcher icons, and repository README.
+- Matching browser icon for frontend development.
+
 ## Changed
 
 - Moved **Check for updates** to the top-right corner on every page.
