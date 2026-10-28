@@ -10,13 +10,13 @@ use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{R
 pub struct Runtime { pub id:String, pub name:String, pub kind:String, #[serde(skip)] binary:PathBuf, #[serde(skip)] steam:Option<PathBuf> }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-struct Record { id:String, name:String, runtime_id:String, installer:String, game_exe:Option<String>, state:String, exit_code:Option<i32>, message:String, run_id:Option<String>, #[serde(default)] boot_id:Option<String>, #[serde(default)] prefix_path:Option<String> }
+struct Record { id:String, name:String, runtime_id:String, installer:String, game_exe:Option<String>, state:String, exit_code:Option<i32>, message:String, run_id:Option<String>, #[serde(default)] boot_id:Option<String>, #[serde(default)] prefix_path:Option<String>, #[serde(default)] hidden:bool }
 #[derive(Debug, Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Game { pub id:String, pub name:String, pub runtime_id:String, pub game_exe:Option<String>, pub state:String, pub exit_code:Option<i32>, pub message:String, pub directory:String, pub windows_drive:String, pub prefix_directory:String, pub log_directory:Option<String> }
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct Library { pub runtimes:Vec<Runtime>, pub games:Vec<Game>, pub warnings:Vec<String> }
+pub struct Library { pub runtimes:Vec<Runtime>, pub games:Vec<Game>, pub removed_games:Vec<Game>, pub warnings:Vec<String> }
 static JOBS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(||Mutex::new(HashSet::new()));
 static UNSAVED: LazyLock<Mutex<HashMap<String, Record>>> = LazyLock::new(||Mutex::new(HashMap::new()));
 fn boot_id()->Option<String>{fs::read_to_string("/proc/sys/kernel/random/boot_id").ok().map(|s|s.trim().to_owned()).filter(|s|!s.is_empty())}
@@ -154,8 +154,9 @@ fn spawn(dir:PathBuf,mut record:Record,r:Runtime,exe:PathBuf,install:bool)->Resu
         if let Ok(mut jobs)=JOBS.lock(){if persist_completion(&dir,&record).is_ok(){jobs.remove(&record.id);}}
     });Ok(result)
 }
-pub fn list()->Result<Library,String>{
-    let root=root()?;let mut jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;let mut games=vec![];let mut warnings=vec![];
+pub fn list()->Result<Library,String>{list_in(root()?,runtimes())}
+fn list_in(root:PathBuf,available_runtimes:Vec<Runtime>)->Result<Library,String>{
+    let mut jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;let mut games=vec![];let mut removed_games=vec![];let mut warnings=vec![];
     let mut pending=UNSAVED.lock().map_err(|_|"Completion receipt lock unavailable")?;
     pending.retain(|id,record|{let dir=root.join(id);match save(&dir,record){Ok(())=>{jobs.remove(id);false},Err(e)=>{warnings.push(format!("Completion for {} could not be saved: {e}. Keep Proton Medic open; it will retry.",record.name));true}}});
     for item in fs::read_dir(&root).map_err(|e|e.to_string())?.flatten(){let id=item.file_name().to_string_lossy().into_owned();if !valid_id(&id){continue;}match load(&root,&id){Ok((dir,mut r))=>{
@@ -165,16 +166,17 @@ pub fn list()->Result<Library,String>{
                 match migrate{Ok(latest)=>r=latest,Err(e)=>warnings.push(format!("Could not record recovery state for {id}: {e}"))}
             }
             let active=jobs.contains(&id) || lock_profile(&dir).is_err();
-            games.push(view(&dir,r,active));
+            let hidden=r.hidden;let game=view(&dir,r,active);
+            if hidden{removed_games.push(game);}else{games.push(game);}
         },Err(e)=>warnings.push(format!("Could not read managed game {id}: {e}"))}}
-    games.sort_by(|a,b|a.name.cmp(&b.name));Ok(Library{runtimes:runtimes(),games,warnings})
+    games.sort_by(|a,b|a.name.cmp(&b.name));removed_games.sort_by(|a,b|a.name.cmp(&b.name));Ok(Library{runtimes:available_runtimes,games,removed_games,warnings})
 }
 pub fn install(name:String,installer:String,runtime_id:String,confirmed:bool)->Result<Game,String>{
     if !confirmed{return Err("Approve running the selected Windows installer".into());}
     if name.trim().is_empty() || name.len()>120 || name.chars().any(char::is_control){return Err("Enter a game name of 1–120 characters".into());}
     let exe=windows_exe(Path::new(&installer))?;let runtime=runtime(&runtime_id)?;let root=root()?;
     let id=stamp()?;let dir=root.join(&id);directory(&dir,true)?;
-    let record=Record{id,name:name.trim().into(),runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None};save(&dir,&record)?;
+    let record=Record{id,name:name.trim().into(),runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false};save(&dir,&record)?;
     spawn(dir,record,runtime,exe,true)
 }
 pub fn select_executable(id:String,path:String,confirmed:bool)->Result<Game,String>{
@@ -211,7 +213,7 @@ pub fn register(name:String,path:String,prefix:String,runtime_id:String,confirme
         }
     }
     let id=stamp()?;let dir=root.join(&id);directory(&dir,true)?;
-    let record=Record{id,name,runtime_id,installer:String::new(),game_exe:Some(exe.to_string_lossy().into()),state:"ready-to-test".into(),exit_code:None,message:"Existing game added. Launch it to test.".into(),run_id:None,boot_id:None,prefix_path:Some(prefix.to_string_lossy().into())};
+    let record=Record{id,name,runtime_id,installer:String::new(),game_exe:Some(exe.to_string_lossy().into()),state:"ready-to-test".into(),exit_code:None,message:"Existing game added. Launch it to test.".into(),run_id:None,boot_id:None,prefix_path:Some(prefix.to_string_lossy().into()),hidden:false};
     save(&dir,&record)?;Ok(view(&dir,record,false))
 }
 #[derive(Debug,Serialize)]
@@ -245,7 +247,51 @@ pub fn find_executables(id:String)->Result<ExecutableSearch,String>{
 pub fn rename(id:String,name:String,confirmed:bool)->Result<Game,String>{
     if !confirmed{return Err("Approve renaming this game".into());}
     let name=validate_name(&name)?;let root=root()?;let dir=profile_dir(&root,&id)?;let _lock=lock_profile(&dir)?;
-    let(_,mut r)=load(&root,&id)?;require_idle(&r)?;r.name=name;save(&dir,&r)?;Ok(view(&dir,r,false))
+    let(_,mut r)=load(&root,&id)?;require_idle(&r)?;backup_profile(&dir,&r)?;r.name=name;save(&dir,&r)?;Ok(view(&dir,r,false))
+}
+fn backup_profile(dir:&Path,record:&Record)->Result<(),String>{
+    let backup=dir.join(format!("profile-backup-{}.json",stamp()?));
+    let mut file=OpenOptions::new().write(true).create_new(true).mode(0o600).open(backup).map_err(|e|e.to_string())?;
+    file.write_all(&serde_json::to_vec_pretty(record).map_err(|e|e.to_string())?).and_then(|_|file.sync_all()).map_err(|e|e.to_string())
+}
+fn set_hidden_in(root:&Path,id:&str,hidden:bool)->Result<(),String>{
+    let dir=profile_dir(root,id)?;let _lock=lock_profile(&dir)?;let(_,mut r)=load(root,id)?;require_idle(&r)?;
+    if r.hidden!=hidden{backup_profile(&dir,&r)?;r.hidden=hidden;save(&dir,&r)?;}Ok(())
+}
+pub fn set_hidden(id:String,hidden:bool,confirmed:bool)->Result<(),String>{
+    if !confirmed{return Err("Approve changing this game's list membership".into());}
+    set_hidden_in(&root()?,&id,hidden)
+}
+#[derive(Serialize,Deserialize,PartialEq)]
+struct IconSource{path:String,size:u64,modified:u128,found:bool}
+fn write_icon_cache(dir:&Path,name:&str,bytes:&[u8])->Result<(),String>{
+    let target=dir.join(name);if target.exists(){regular(&target,1024*1024)?;}
+    let temp=dir.join(format!(".icon-{}.tmp",stamp()?));
+    let result=(||{let mut file=OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp).map_err(|e|e.to_string())?;file.write_all(bytes).and_then(|_|file.sync_all()).map_err(|e|e.to_string())?;fs::rename(&temp,&target).map_err(|e|e.to_string())})();
+    if result.is_err(){let _=fs::remove_file(temp);}result
+}
+fn icon_path_in(root:&Path,id:&str)->Option<PathBuf>{
+    let(dir,r)=load(root,id).ok()?;let path=Path::new(r.game_exe.as_deref()?);let meta=fs::metadata(path).ok()?;
+    let mut source=IconSource{path:path.to_str()?.into(),size:meta.len(),modified:meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_nanos(),found:false};
+    let cache=dir.join("game-icon-source.json");let icon=dir.join("game-icon.png");
+    if regular(&cache,65536).is_ok(){if let Ok(previous)=serde_json::from_slice::<IconSource>(&fs::read(&cache).ok()?){
+        source.found=previous.found;
+        if source==previous{if !previous.found{return None;}if regular(&icon,1024*1024).is_ok(){return Some(icon);}}
+    }}
+    source.found=false;
+    if let Some(png)=crate::game_icons::executable_png(path){
+        write_icon_cache(&dir,"game-icon.png",&png).ok()?;source.found=true;
+    }
+    write_icon_cache(&dir,"game-icon-source.json",&serde_json::to_vec(&source).ok()?).ok()?;
+    source.found.then_some(icon)
+}
+pub fn icon_path(id:&str)->Option<PathBuf>{icon_path_in(&root().ok()?,id)}
+pub fn icon(id:String)->Result<Option<String>,String>{
+    let root=root()?;load(&root,&id)?;
+    let Some(path)=icon_path_in(&root,&id) else{return Ok(None)};
+    regular(&path,1024*1024)?;
+    let bytes=fs::read(path).map_err(|e|e.to_string())?;
+    Ok(Some(crate::game_icons::data_uri(&bytes,"image/png")))
 }
 pub fn shortcut_profile(id:&str)->Result<(String,PathBuf),String>{
     let root=root()?;let(dir,r)=load(&root,id)?;
@@ -289,7 +335,7 @@ mod tests{
     impl Fixture{fn new()->Self{let p=std::env::temp_dir().join(format!("pm-exe-{}",stamp().unwrap()));fs::create_dir(&p).unwrap();Self(p)}}
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
     fn pe(path:&Path){let mut bytes=vec![0u8;256];bytes[..2].copy_from_slice(b"MZ");bytes[60..64].copy_from_slice(&128u32.to_le_bytes());bytes[128..132].copy_from_slice(b"PE\0\0");bytes[132..134].copy_from_slice(&0x8664u16.to_le_bytes());fs::write(path,bytes).unwrap();}
-    fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None}}
+    fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false}}
     #[test] fn validates_windows_pe_and_rejects_linux_and_truncated_files(){
         let f=Fixture::new();let exe=f.0.join("setup.exe");pe(&exe);assert!(windows_exe(&exe).is_ok());
         fs::write(&exe,b"#!/bin/sh\necho not windows").unwrap();assert!(windows_exe(&exe).is_err());
@@ -390,6 +436,36 @@ mod tests{
     #[test] fn registration_and_renaming_require_consent_before_io(){
         assert!(register("Game".into(),"/none.exe".into(),"/none".into(),"none".into(),false).unwrap_err().contains("Approve"));
         assert!(rename("123".into(),"Game".into(),false).unwrap_err().contains("Approve"));
+    }
+
+    #[test] fn removal_and_restore_preserve_game_files_prefixes_and_backups(){
+        let f=Fixture::new();let id="123-456";let dir=f.0.join(id);directory(&dir,true).unwrap();
+        let data=dir.join("compatdata/pfx/drive_c/Game/save.dat");fs::create_dir_all(data.parent().unwrap()).unwrap();fs::write(&data,b"saved progress").unwrap();save(&dir,&record(id)).unwrap();
+        set_hidden_in(&f.0,id,true).unwrap();assert!(load(&f.0,id).unwrap().1.hidden);
+        let hidden=list_in(f.0.clone(),vec![]).unwrap();assert!(hidden.games.is_empty());assert_eq!(hidden.removed_games.len(),1);
+        assert_eq!(fs::read(&data).unwrap(),b"saved progress");
+        set_hidden_in(&f.0,id,false).unwrap();let restored=list_in(f.0.clone(),vec![]).unwrap();assert_eq!(restored.games.len(),1);assert!(restored.removed_games.is_empty());
+        assert_eq!(fs::read(&data).unwrap(),b"saved progress");
+        assert_eq!(fs::read_dir(&dir).unwrap().flatten().filter(|e|e.file_name().to_string_lossy().starts_with("profile-backup-")).count(),2);
+    }
+    #[test] fn cannot_remove_a_running_or_locked_profile(){
+        let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let mut r=record(id);r.state="game-running".into();r.boot_id=boot_id();save(&dir,&r).unwrap();
+        assert!(set_hidden_in(&f.0,id,true).is_err());assert!(!load(&f.0,id).unwrap().1.hidden);
+        r.state="ready-to-test".into();save(&dir,&r).unwrap();let _guard=lock_profile(&dir).unwrap();assert!(set_hidden_in(&f.0,id,true).is_err());
+    }
+    #[test] fn old_profiles_are_visible_without_the_hidden_field(){
+        let mut json=serde_json::to_value(record("123")).unwrap();json.as_object_mut().unwrap().remove("hidden");
+        let r:Record=serde_json::from_value(json).unwrap();assert!(!r.hidden);
+    }
+    #[test] fn changing_list_membership_requires_explicit_consent(){
+        assert!(set_hidden("123".into(),true,false).unwrap_err().contains("Approve"));
+        assert!(set_hidden("123".into(),false,false).unwrap_err().contains("Approve"));
+    }
+    #[test] fn missing_or_changed_icon_source_does_not_reuse_a_stale_icon(){
+        let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let mut r=record(id);let exe=f.0.join("empty.exe");pe(&exe);r.game_exe=Some(exe.to_string_lossy().into());save(&dir,&r).unwrap();
+        fs::write(dir.join("game-icon.png"),b"stale image").unwrap();assert!(icon_path_in(&f.0,id).is_none());
+        let source:IconSource=serde_json::from_slice(&fs::read(dir.join("game-icon-source.json")).unwrap()).unwrap();assert!(!source.found);
+        fs::remove_file(exe).unwrap();assert!(icon_path_in(&f.0,id).is_none());
     }
 
 }

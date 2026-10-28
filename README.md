@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.8 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.9 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -16,7 +16,9 @@ Proton Medic helps Linux players diagnose game problems, manage installed Proton
 - Apply supported configuration fixes with backups and selective rollback.
 - Run trusted Windows `.exe` installers using an installed Wine or Proton runtime.
 - Register installed Windows games using their existing prefix, including game files on other drives.
-- Create desktop and applications-menu shortcuts that reuse a game’s saved environment.
+- Create desktop and applications-menu shortcuts that reuse a game’s saved environment and extracted icon.
+- Rename Windows game profiles, remove them from the list, and restore them without deleting game files.
+- Display embedded Windows game icons and locally cached Steam artwork.
 - Check for signed GitHub updates when requested.
 - Use a blue glass interface with bundled fonts.
 
@@ -32,7 +34,7 @@ Download the amd64 DEB from [Releases](https://github.com/relentlesspoetry-coder
 
 Open **Windows Games**, select the installed game’s `.exe` in its card, then choose **Create desktop shortcut**. Shortcuts launch through Proton Medic’s native launcher using the saved runtime, prefix, and working directory. The main window does not need to be open. GNOME may ask you to **Allow Launching** on first use.
 
-Use **Add installed game** for an installation missing from the list. Select its executable and the existing prefix containing `drive_c` and `system.reg`; use the runtime that previously ran it. This registers the game without reinstalling or copying it. Games installed through Proton Medic may initially appear under their installer’s name. Use **Game settings and logs** to rename them.
+Use **Add installed game** for an installation missing from the list. Select its executable and the existing prefix containing `drive_c` and `system.reg`; use the runtime that previously ran it. This registers the game without reinstalling or copying it. Games installed through Proton Medic may initially appear under their installer’s name. Use **Rename** on the game card to change its display name. **Remove from list** hides the profile while preserving its game files, prefix, and shortcuts. Expand **Removed games** to restore it.
 
 ## Build
 
@@ -61,4 +63,5 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.6 changes](RELEASE-v0.6.6.md)
 - [v0.6.7 changes](RELEASE-v0.6.7.md)
 - [v0.6.8 changes](RELEASE-v0.6.8.md)
+- [v0.6.9 changes](RELEASE-v0.6.9.md)
 

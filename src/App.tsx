@@ -14,6 +14,7 @@ import { WindowsGames } from './WindowsGames';
 import { AutoLogMonitor } from './AutoLogMonitor';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
+import { GameIcon } from './GameIcon';
 import { LaunchTest } from './LaunchTest';
 import programLogo from './assets/proton-medic-logo.webp';
 
@@ -214,7 +215,7 @@ export default function App() {
       {page === 'windows' && <WindowsGames/>}
       {page === 'games' && <>
         <div className="pm-page-title"><div><h1>My Games</h1><p>Your installed Steam games, all in one place.</p></div><button className="pm-button pm-button-primary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={17} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div>
-        {selectedGame ? <div className="pm-detail-view"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><div className="pm-selected-head"><div className="pm-game-image big"><Gamepad2 size={43}/></div><div><h2>{selectedGame.name}</h2><span className="pm-game-subtitle">Steam App {selectedGame.appId}</span><div className="pm-detail-status"><StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/></div><p>{getIssue(selectedGame, selectedDiagnosis ?? undefined).note}</p></div></div>
+        {selectedGame ? <div className="pm-detail-view"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><div className="pm-selected-head"><GameIcon className="big" source={{ kind: 'steam', appId: selectedGame.appId, libraryPath: selectedGame.libraryPath }}/><div><h2>{selectedGame.name}</h2><span className="pm-game-subtitle">Steam App {selectedGame.appId}</span><div className="pm-detail-status"><StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/></div><p>{getIssue(selectedGame, selectedDiagnosis ?? undefined).note}</p></div></div>
           <div className="pm-section"><div className="pm-section-heading"><div><h2>What Proton Medic Found</h2><p>Existing logs are checked without changing your game.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/>{analyzing ? 'Checking...' : 'Analyze Again'}</button></div>
             {!selectedGame.installPathExists && <div className="pm-callout"><AlertTriangle size={18}/> Game install folder is missing. Check the Steam installation or mount the drive.</div>}
             <GameDiagnosis result={selectedDiagnosis}/>
@@ -251,7 +252,7 @@ export default function App() {
 
 function GameRow({ game, diagnostic, onClick }: { game: Game; diagnostic?: GameDiagnostics; onClick: () => void }) {
   const issue = getIssue(game, diagnostic);
-  return <button className="pm-game-row" onClick={onClick} type="button"><span className="pm-game-image"><Gamepad2 size={30}/></span><span className="pm-game-title"><strong>{game.name}</strong><small>Steam · App {game.appId}</small></span><span className="pm-game-issue"><StatusTag tone={issue.tone} label={issue.label}/><small>{issue.note}</small></span><span className="pm-view-game">View details <ArrowRight size={16}/></span></button>;
+  return <button className="pm-game-row" onClick={onClick} type="button"><GameIcon source={{ kind: 'steam', appId: game.appId, libraryPath: game.libraryPath }}/><span className="pm-game-title"><strong>{game.name}</strong><small>Steam · App {game.appId}</small></span><span className="pm-game-issue"><StatusTag tone={issue.tone} label={issue.label}/><small>{issue.note}</small></span><span className="pm-view-game">View details <ArrowRight size={16}/></span></button>;
 }
 function Empty({ title, detail }: { title: string; detail: string }) { return <div className="pm-empty"><Gamepad2 size={29}/><strong>{title}</strong><p>{detail}</p></div>; }
 function CheckRow({ label, detail, state }: { label: string; detail: string; state: 'ok' | 'warning' | 'neutral' }) {

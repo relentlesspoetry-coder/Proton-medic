@@ -311,6 +311,19 @@ pre { overflow-wrap: anywhere; }
 .pm-executable-search { display: grid; gap: 12px; margin: 16px 0; min-width: 0; }
 @keyframes pm-spin { to{transform:rotate(360deg)} }
 @supports (backdrop-filter:blur(16px)) {  .pm-sidebar, .pm-section, .pm-action-card { backdrop-filter: blur(16px); }  }
+
+.pm-game-image img { display: block; width: 100%; height: 100%; object-fit: contain; padding: 5px; }
+.pm-windows-game-title { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.pm-windows-game-title>div { min-width: 0; }
+.pm-windows-game-title .pm-game-image { width: 54px; height: 54px; }
+.pm-game-management { margin: 12px 0; }
+.pm-name-editor { display: grid; gap: 12px; margin: 16px 0; }
+.pm-name-editor label { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 13px; }
+.pm-name-editor input { width: 100%; min-width: 0; }
+.pm-remove-confirm { margin: 16px 0; padding: 14px; border: 1px solid var(--pm-border); border-radius: 10px; background: #132d46; }
+.pm-removed-games { display: grid; gap: 10px; margin-top: 12px; }
+.pm-removed-game { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.pm-removed-game>span { min-width: 0; overflow-wrap: anywhere; }
 @media(max-width:680px) {
   .pm-selected-head { gap:14px }
   .pm-game-image.big { width:85px;height:95px }

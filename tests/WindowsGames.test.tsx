@@ -34,7 +34,7 @@ it('installer exit zero does not enable launch before executable selection',asyn
  expect(invoke).toHaveBeenCalledWith('select_windows_game_executable',{id:'123',path:game.windowsDrive+'/Game/game.exe',confirmed:true});
 });
 it('launches a selected executable only after a launch click',async()=>{
- invoke.mockResolvedValue({runtimes:[runtime],games:[{...game,gameExe:game.windowsDrive+'/game.exe'}],warnings:[]});await mount();expect(invoke.mock.calls.every(c=>c[0]==='list_windows_games')).toBe(true);await click('Launch game');expect(invoke).toHaveBeenCalledWith('launch_windows_game',{id:'123',confirmed:true});
+ invoke.mockResolvedValue({runtimes:[runtime],games:[{...game,gameExe:game.windowsDrive+'/game.exe'}],warnings:[]});await mount();expect(invoke.mock.calls.every(c=>['list_windows_games','get_windows_game_icon'].includes(c[0]))).toBe(true);await click('Launch game');expect(invoke).toHaveBeenCalledWith('launch_windows_game',{id:'123',confirmed:true});
 });
 
 it('blocks relaunch and executable changes for an unresolved previous run',async()=>{
@@ -57,7 +57,7 @@ it('registers an existing game only after choosing its prefix and approving', as
 });
 it('creates a shortcut only after the explicit shortcut click',async()=>{
  invoke.mockImplementation((command:string)=>Promise.resolve(command==='create_windows_game_shortcut'?['/Desktop/game.desktop']:{runtimes:[runtime],games:[{...game,gameExe:'/Games/Wukong/b1.exe'}],warnings:[]}));
- await mount();expect(invoke.mock.calls.every(c=>c[0]==='list_windows_games')).toBe(true);
+ await mount();expect(invoke.mock.calls.every(c=>['list_windows_games','get_windows_game_icon'].includes(c[0]))).toBe(true);
  await click('Create desktop shortcut');expect(invoke).toHaveBeenCalledWith('create_windows_game_shortcut',{id:'123',confirmed:true});
  expect(screen.getByText(/Shortcuts created/)).toBeTruthy();
 });
@@ -68,4 +68,22 @@ it('finding executables neither selects nor launches one automatically',async()=
  fireEvent.change(screen.getByRole('combobox',{name:'Executable for Fixture'}),{target:{value:'/Games/Wukong/b1.exe'}});
  invoke.mockImplementation((command:string)=>Promise.resolve(command==='select_windows_game_executable'?{...game,gameExe:'/Games/Wukong/b1.exe'}:{runtimes:[runtime],games:[game],warnings:[]}));
  await click('Use selected executable');expect(invoke).toHaveBeenCalledWith('select_windows_game_executable',{id:'123',path:'/Games/Wukong/b1.exe',confirmed:true});
+});
+
+it('renames a game from a visible card action',async()=>{
+ let current={...game};invoke.mockImplementation((command:string,args:any)=>{if(command==='rename_windows_game'){current={...current,name:args.name};return Promise.resolve(current);}return Promise.resolve({runtimes:[runtime],games:[current],warnings:[]});});
+ await mount();await click('Rename Fixture');fireEvent.change(screen.getByRole('textbox',{name:'Display name for Fixture'}),{target:{value:'Black Myth Wukong'}});await click('Save name');
+ expect(invoke).toHaveBeenCalledWith('rename_windows_game',{id:'123',name:'Black Myth Wukong',confirmed:true});expect(screen.getByRole('heading',{name:'Black Myth Wukong'})).toBeTruthy();
+});
+it('removes only after confirmation and restores a removed game',async()=>{
+ let hidden=false;invoke.mockImplementation((command:string,args:any)=>{if(command==='set_windows_game_hidden'){hidden=args.hidden;return Promise.resolve();}return Promise.resolve({runtimes:[runtime],games:hidden?[]:[game],removedGames:hidden?[game]:[],warnings:[]});});
+ await mount();await click('Remove Fixture from list');expect(invoke).not.toHaveBeenCalledWith('set_windows_game_hidden',expect.anything());
+ await click('Cancel');expect(screen.getByRole('heading',{name:'Fixture'})).toBeTruthy();
+ await click('Remove Fixture from list');await click('Confirm removal');expect(screen.queryByRole('heading',{name:'Fixture'})).toBeNull();
+ fireEvent.click(screen.getByText('Removed games (1)'));await click('Restore Fixture');expect(screen.getByRole('heading',{name:'Fixture'})).toBeTruthy();
+ expect(invoke).toHaveBeenCalledWith('set_windows_game_hidden',{id:'123',hidden:false,confirmed:true});
+});
+it('blocks rename and removal while the game is running',async()=>{
+ invoke.mockResolvedValue({runtimes:[runtime],games:[{...game,state:'game-running'}],warnings:[]});await mount();
+ expect((screen.getByRole('button',{name:'Rename Fixture'}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByRole('button',{name:'Remove Fixture from list'}) as HTMLButtonElement).disabled).toBe(true);
 });

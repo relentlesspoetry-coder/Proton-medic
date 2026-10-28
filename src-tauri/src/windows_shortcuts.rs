@@ -29,6 +29,26 @@ fn create_file(path:&Path,bytes:&[u8],mode:u32)->Result<(),String>{
         },Err(e)=>Err(e.to_string())
     }
 }
+fn write_launcher(path:&Path,content:&[u8],backups:&Path)->Result<(),String>{
+    if !path.exists(){return create_file(path,content,0o700);}
+    let meta=fs::symlink_metadata(path).map_err(|e|e.to_string())?;
+    if !meta.is_file() || meta.file_type().is_symlink() || meta.len()>65536{return Err("Existing shortcut is not a regular launcher; it was left unchanged".into());}
+    let mut previous=vec![];
+    use std::io::Read;
+    OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW|libc::O_NONBLOCK).open(path).map_err(|e|e.to_string())?.take(65537).read_to_end(&mut previous).map_err(|e|e.to_string())?;
+    if previous==content{return Ok(());}
+    let before=std::str::from_utf8(&previous).map_err(|_|"Existing shortcut is not UTF-8")?;
+    let after=std::str::from_utf8(content).map_err(|_|"Invalid launcher content")?;
+    let exec=|text:&str|text.lines().find(|line|line.starts_with("Exec=")).map(str::to_owned);
+    if exec(before).is_none() || exec(before)!=exec(after){return Err("Existing shortcut launches a different command; it was left unchanged".into());}
+    if !backups.exists(){use std::os::unix::fs::DirBuilderExt;fs::DirBuilder::new().mode(0o700).create(backups).map_err(|e|e.to_string())?;}
+    let meta=fs::symlink_metadata(backups).map_err(|e|e.to_string())?;
+    if !meta.is_dir() || meta.file_type().is_symlink(){return Err("Shortcut backup directory must not be a symbolic link".into());}
+    let stamp=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
+    let backup=backups.join(format!("launcher-{stamp}.desktop"));create_file(&backup,&previous,0o600)?;
+    let temporary=path.with_extension(format!("desktop-{stamp}.tmp"));create_file(&temporary,content,0o700)?;
+    if let Err(error)=fs::rename(&temporary,path){let _=fs::remove_file(temporary);return Err(error.to_string());}Ok(())
+}
 fn desktop_dir()->Result<PathBuf,String>{
     let home=std::env::var_os("HOME").map(PathBuf::from).ok_or("Home directory unavailable")?;
     let configured=Command::new("xdg-user-dir").arg("DESKTOP").output().ok().filter(|o|o.status.success()).and_then(|o|String::from_utf8(o.stdout).ok()).map(|s|PathBuf::from(s.trim_end_matches(['\r','\n'])));
@@ -43,12 +63,14 @@ pub fn create(id:String,confirmed:bool)->Result<Vec<String>,String>{
     let app_data=root.parent().ok_or("Application data unavailable")?;
     let applications=app_data.parent().ok_or("Data directory unavailable")?.join("applications");
     fs::create_dir_all(&applications).map_err(|e|e.to_string())?;
-    let icon=app_data.join("game-shortcut-icon.png");
-    create_file(&icon,include_bytes!("../icons/128x128.png"),0o600)?;
+    let icon=if let Some(path)=crate::windows_games::icon_path(&id){path}else{
+        let path=app_data.join("game-shortcut-icon.png");
+        create_file(&path,include_bytes!("../icons/128x128.png"),0o600)?;path
+    };
     let content=entry(&name,&std::env::current_exe().map_err(|e|e.to_string())?,&root,&id,&icon)?;
     let filename=format!("proton-medic-game-{id}.desktop");let mut paths=vec![];
     for dir in [applications,desktop]{
-        let path=dir.join(&filename);create_file(&path,content.as_bytes(),0o700)?;
+        let path=dir.join(&filename);write_launcher(&path,content.as_bytes(),&root.join(&id).join("shortcut-backups"))?;
         paths.push(path.to_string_lossy().into());
         // GNOME may still ask the player to Allow Launching on first use.
         let _=Command::new("gio").args(["set"]).arg(&path).args(["metadata::trusted","true"]).output();
@@ -101,6 +123,16 @@ mod tests{
         let args:Vec<String>=serde_json::from_str(&fs::read_to_string(receipt).unwrap()).unwrap();
         assert_eq!(args,vec!["--launch-windows-game".to_owned(),"123-456".into(),"--profile-root".into(),profile.to_string_lossy().into_owned()]);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test] fn owned_shortcut_refresh_backs_up_its_previous_name_and_icon(){
+        let root=std::env::temp_dir().join(format!("pm-refresh-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));fs::create_dir(&root).unwrap();
+        let path=root.join("game.desktop");let backup=root.join("backups");
+        let old=entry("Old name",Path::new("/bin/app"),Path::new("/data"),"123",Path::new("/old.png")).unwrap();
+        let new=entry("New name",Path::new("/bin/app"),Path::new("/data"),"123",Path::new("/game.png")).unwrap();
+        create_file(&path,old.as_bytes(),0o700).unwrap();write_launcher(&path,new.as_bytes(),&backup).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(),new);let saved=fs::read_dir(&backup).unwrap().next().unwrap().unwrap().path();assert_eq!(fs::read_to_string(saved).unwrap(),old);
+        assert!(write_launcher(&path,b"[Desktop Entry]\nExec=/different-app\n",&backup).is_err());assert_eq!(fs::read_to_string(&path).unwrap(),new);fs::remove_dir_all(root).unwrap();
     }
 
 }

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Download, Monitor, Play, Plus, RefreshCw, Search } from 'lucide-react';
+import { Download, Monitor, Play, Plus, RefreshCw, Search, Pencil, Trash2 } from 'lucide-react';
 import type { Finding } from './types';
+import { GameIcon } from './GameIcon';
 interface LogReport { findings: Finding[]; logs: { name: string; status: string; truncated: boolean }[] }
 interface Runtime { id: string; name: string; kind: string }
 interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null }
-interface Library { runtimes: Runtime[]; games: Game[]; warnings: string[] }
+interface Library { runtimes: Runtime[]; games: Game[]; removedGames?: Game[]; warnings: string[] }
 interface ExecutableSearch { executables: string[]; truncated: boolean }
 const empty: Library = { runtimes: [], games: [], warnings: [] };
 const isRunning = (game: Game) => game.state.endsWith('running') || game.state === 'session-ended';
@@ -76,9 +77,11 @@ export function WindowsGames() {
     {notice && <p role="status" className="pm-auto-message">{notice}</p>}
     {library.warnings.map((warning, i) => <p key={i} role="alert" className="pm-repair-danger">{warning}</p>)}
     <section className="pm-section" aria-label="Managed Windows games">
-      <div className="pm-section-heading"><div><h2>Your Windows games</h2><p>Installer names appear here until renamed. Choose a game executable once to enable launching and shortcuts.</p></div></div>
+      <div className="pm-section-heading"><div><h2>Your Windows games</h2><p>Choose a game to launch, rename, or manage.</p></div></div>
       {!library.games.length && <p>{loaded ? 'No Windows games have been added yet.' : 'Loading Windows games…'}</p>}
-      <div className="pm-windows-list">{library.games.map(game => <WindowsGameCard key={game.id} game={game} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice}/>)}</div>
+      <div className="pm-windows-list">{library.games.map(game => <WindowsGameCard key={game.id} game={game} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>)}</div>
+      {!!library.removedGames?.length && <details className="pm-update-details"><summary>Removed games ({library.removedGames.length})</summary><p>Game files and prefixes are kept. Restore a game to show it in this list again.</p><div className="pm-removed-games">{library.removedGames.map(game => <div className="pm-removed-game" key={game.id}><span>{game.name}</span><button disabled={busy || isRunning(game)} className="pm-button pm-button-secondary" onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: false, confirmed: true }); await refresh(); })}>Restore {game.name}</button></div>)}</div></details>}
+
     </section>
     <section className="pm-section" aria-label="Add Windows game">
       <div className="pm-windows-tabs" role="group" aria-label="Add game method">
@@ -105,15 +108,27 @@ export function WindowsGames() {
   </>;
 }
 
-function WindowsGameCard({ game, busy, run, remember, refresh, notify }: { game: Game; busy: boolean; run: (task: () => Promise<void>) => Promise<void>; remember: (game: Game) => void; refresh: () => Promise<void>; notify: (message: string) => void }) {
+function WindowsGameCard({ game, busy, run, remember, refresh, notify, forget }: { game: Game; busy: boolean; run: (task: () => Promise<void>) => Promise<void>; remember: (game: Game) => void; refresh: () => Promise<void>; notify: (message: string) => void; forget: (id: string) => void }) {
   const [search, setSearch] = useState<ExecutableSearch | null>(null);
   const [candidate, setCandidate] = useState('');
   const [name, setName] = useState(game.name);
+  const [editing, setEditing] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  useEffect(() => { setName(game.name); }, [game.name]);
   const [logs, setLogs] = useState<LogReport | null>(null);
   const running = isRunning(game);
   const select = async (path: string) => { remember(await invoke<Game>('select_windows_game_executable', { id: game.id, path, confirmed: true })); setSearch(null); await refresh(); };
   return <article className="pm-windows-game">
-    <div className="pm-section-heading"><div><h3>{game.name}</h3><p role="status">{statusLabel(game)}</p></div>{game.gameExe && <button disabled={busy || running} className="pm-button pm-button-primary" onClick={() => void run(async () => { remember(await invoke<Game>('launch_windows_game', { id: game.id, confirmed: true })); await refresh(); })}><Play size={17}/>Launch game</button>}</div>
+    <div className="pm-section-heading"><div className="pm-windows-game-title"><GameIcon source={{ kind: 'windows', id: game.id, executable: game.gameExe }}/><div><h3>{game.name}</h3><p role="status">{statusLabel(game)}</p></div></div>{game.gameExe && <button disabled={busy || running} className="pm-button pm-button-primary" onClick={() => void run(async () => { remember(await invoke<Game>('launch_windows_game', { id: game.id, confirmed: true })); await refresh(); })}><Play size={17}/>Launch game</button>}</div>
+    <div className="pm-button-row pm-game-management">
+      <button type="button" className="pm-button pm-button-secondary" aria-label={`Rename ${game.name}`} disabled={busy || running} onClick={() => { setName(game.name); setEditing(true); setRemoving(false); }}><Pencil size={15}/>Rename</button>
+      <button type="button" className="pm-button pm-button-secondary" aria-label={`Remove ${game.name} from list`} disabled={busy || running} onClick={() => { setRemoving(true); setEditing(false); }}><Trash2 size={15}/>Remove from list</button>
+    </div>
+    {editing && <form className="pm-name-editor" onSubmit={event => { event.preventDefault(); if (name.trim() && name.trim() !== game.name) void run(async () => { remember(await invoke<Game>('rename_windows_game', { id: game.id, name, confirmed: true })); setEditing(false); await refresh(); }); }}>
+      <label>Display name<input aria-label={`Display name for ${game.name}`} value={name} maxLength={120} disabled={busy || running} onChange={event => setName(event.target.value)} autoFocus/></label>
+      <div className="pm-button-row"><button type="submit" className="pm-button pm-button-primary" disabled={busy || running || !name.trim() || name.trim() === game.name}>Save name</button><button type="button" className="pm-button pm-button-secondary" disabled={busy} onClick={() => setEditing(false)}>Cancel</button></div>
+    </form>}
+    {removing && <div className="pm-remove-confirm" role="group" aria-label={`Confirm removal of ${game.name}`}><p>Remove <strong>{game.name}</strong> from this list? Game files, prefixes, and desktop shortcuts are kept. You can restore it from Removed games.</p><div className="pm-button-row"><button className="pm-button pm-button-secondary" disabled={busy || running} onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: true, confirmed: true }); forget(game.id); await refresh(); })}>Confirm removal</button><button className="pm-button pm-button-secondary" disabled={busy} onClick={() => setRemoving(false)}>Cancel</button></div></div>}
     <p>{game.message}</p>
     <div className="pm-button-row">
       <button disabled={busy || running} className="pm-button pm-button-secondary" onClick={() => void run(async () => {
@@ -128,7 +143,7 @@ function WindowsGameCard({ game, busy, run, remember, refresh, notify }: { game:
       {search.truncated && <p>The search reached its limit. You can choose a file manually.</p>}
     </div>}
     <details className="pm-update-details"><summary>Game settings and logs</summary>
-      <div className="pm-form-grid"><label>Display name<input aria-label={`Display name for ${game.name}`} value={name} maxLength={120} disabled={busy || running} onChange={e => setName(e.target.value)}/></label><button className="pm-button pm-button-secondary" disabled={busy || running || !name.trim() || name.trim() === game.name} onClick={() => void run(async () => { remember(await invoke<Game>('rename_windows_game', { id: game.id, name, confirmed: true })); await refresh(); })}>Save name</button></div>
+
       <dl className="pm-windows-paths"><dt>Game executable</dt><dd>{game.gameExe ?? 'Not selected'}</dd><dt>Windows prefix</dt><dd>{game.prefixDirectory ?? game.windowsDrive.replace(/\/drive_c$/, '')}</dd><dt>Runtime</dt><dd>{game.runtimeId}</dd><dt>Last exit code</dt><dd>{game.exitCode ?? 'Not available'}</dd><dt>Logs</dt><dd>{game.logDirectory ?? 'No run yet'}</dd></dl>
       <button disabled={busy || !game.logDirectory} className="pm-button pm-button-secondary" onClick={() => void run(async () => setLogs(await invoke<LogReport>('analyze_windows_game', { id: game.id })))}>Read runtime logs</button>
       {logs && <div>{logs.logs.map(log => <p key={log.name}>{log.name}: {log.status}{log.truncated ? ' · partial log (tail retained)' : ''}</p>)}{logs.findings.length ? logs.findings.map(f => <p key={f.code}><strong>{f.title}</strong> — {f.recommendation}</p>) : <p>No recognized errors in the captured logs.</p>}</div>}

@@ -1,3 +1,4 @@
+mod game_icons;
 pub mod windows_shortcuts;
 #[tauri::command]
 fn startup_diagnostic(message:String){
@@ -18,7 +19,7 @@ mod launch_test;
 
 #[tauri::command]
 async fn scan_steam() -> Result<scanner::ScanReport, String> {
-    tauri::async_runtime::spawn_blocking(scanner::scan)
+    tauri::async_runtime::spawn_blocking(||{let scan=scanner::scan();game_icons::remember_steam(&scan);scan})
         .await
         .map_err(|error| format!("Scanner thread failed: {error}"))
 }
@@ -157,6 +158,19 @@ async fn create_windows_game_shortcut(id:String,confirmed:bool)->Result<Vec<Stri
     tauri::async_runtime::spawn_blocking(move||windows_shortcuts::create(id,confirmed)).await.map_err(|e|e.to_string())?
 }
 
+#[tauri::command]
+async fn set_windows_game_hidden(id:String,hidden:bool,confirmed:bool)->Result<(),String>{
+    tauri::async_runtime::spawn_blocking(move||windows_games::set_hidden(id,hidden,confirmed)).await.map_err(|e|e.to_string())?
+}
+#[tauri::command]
+async fn get_windows_game_icon(id:String)->Result<Option<String>,String>{
+    tauri::async_runtime::spawn_blocking(move||windows_games::icon(id)).await.map_err(|e|e.to_string())?
+}
+#[tauri::command]
+async fn get_steam_game_icon(app_id:String,library_path:String)->Result<Option<String>,String>{
+    tauri::async_runtime::spawn_blocking(move||game_icons::steam_icon(app_id,library_path)).await.map_err(|e|e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     eprintln!("[Proton Medic startup] Native process {} starting", env!("CARGO_PKG_VERSION"));
@@ -166,7 +180,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|_|{eprintln!("[Proton Medic startup] Tauri setup completed");Ok(())})
         .on_page_load(|_,payload|{eprintln!("[Proton Medic startup] Page event: {:?}",payload.event());})
-        .invoke_handler(tauri::generate_handler![startup_diagnostic,register_windows_game,find_windows_game_executables,rename_windows_game,create_windows_game_shortcut,list_windows_games, install_windows_game, select_windows_game_executable, launch_windows_game, analyze_windows_game, prepare_game_logging, get_game_logging, restore_game_logging, monitor_game_logs, plan_game_fix, start_game_fix, test_game_fix, rollback_game_fix, finish_game_fix, scan_steam, analyze_diagnostics, probe_vulkan, preview_repair, apply_repair, list_repair_backups, restore_repair, recommend_proton, auto_select_proton, test_game_launch])
+        .invoke_handler(tauri::generate_handler![startup_diagnostic,set_windows_game_hidden,get_windows_game_icon,get_steam_game_icon,register_windows_game,find_windows_game_executables,rename_windows_game,create_windows_game_shortcut,list_windows_games, install_windows_game, select_windows_game_executable, launch_windows_game, analyze_windows_game, prepare_game_logging, get_game_logging, restore_game_logging, monitor_game_logs, plan_game_fix, start_game_fix, test_game_fix, rollback_game_fix, finish_game_fix, scan_steam, analyze_diagnostics, probe_vulkan, preview_repair, apply_repair, list_repair_backups, restore_repair, recommend_proton, auto_select_proton, test_game_launch])
         .run(tauri::generate_context!())
         .expect("failed to start Proton Medic");
 }
