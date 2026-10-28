@@ -1,4 +1,4 @@
-//! Phase 4: bounded, user-triggered Steam launch observation.
+//! Bounded, user-triggered Steam launch observation.
 //!
 //! We never declare a game playable from a Steam CLI exit code or from
 //! the absence of known Proton log errors. The user confirms playability.

@@ -22,7 +22,7 @@ __pycache__/
 scripts/verify-signature/target/
 release/
 
-# Local review evidence and historical previews
+# Development artifacts
 screenshots/
 validation-logs/
 preview-render.tsx

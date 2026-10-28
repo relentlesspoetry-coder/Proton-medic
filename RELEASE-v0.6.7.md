@@ -1,7 +1,5 @@
 # Proton Medic v0.6.7
 
-Status: development build.
-
 ## Added
 
 - New Proton Medic logo in the sidebar, desktop launcher icons, and repository README.
