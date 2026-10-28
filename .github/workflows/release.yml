@@ -2,6 +2,10 @@ name: Signed Linux release
 on:
   push:
     tags: ['v*']
+  workflow_run:
+    workflows: ['Proton Medic — Linux native validation']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -11,23 +15,53 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: release-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 jobs:
+  prepare:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Select new validated version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_AUTOMATIC: ${{ github.event_name == 'workflow_run' }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          REQUESTED_TAG: ${{ inputs.tag || (github.event_name == 'push' && github.ref_name) || '' }}
+        run: python3 scripts/release_ready.py
   release:
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@1.99.1
       - name: Validate stable release version
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           python3 - <<'PY'
           import json, os, re, tomllib
@@ -50,7 +84,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -66,13 +100,20 @@ jobs:
       - name: Publish release assets after all checks pass
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_EVENT: ${{ github.event_name }}
-          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
           RELEASE_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if [ "$RELEASE_EVENT" = workflow_dispatch ]; then
+          if [ "$RELEASE_EVENT" = workflow_run ]; then
+            current_main=$(gh api "repos/$RELEASE_REPOSITORY/commits/main" --jq .sha)
+            if [ "$current_main" != "$RELEASE_SHA" ]; then
+              echo 'A newer source commit is awaiting validation; this release was skipped.'
+              exit 0
+            fi
+          fi
+          if [ "$RELEASE_EVENT" != push ]; then
             gh api "repos/$RELEASE_REPOSITORY/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$RELEASE_SHA" > /dev/null
           fi
           gh release create "$RELEASE_TAG" release/* --verify-tag --title "Proton Medic $RELEASE_TAG" --notes-file "RELEASE-$RELEASE_TAG.md" --latest

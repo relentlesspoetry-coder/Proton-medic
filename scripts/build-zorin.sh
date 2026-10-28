@@ -99,6 +99,8 @@ echo '[RUN] Native build gate regression checks (Python)'
 python3 scripts/test-build-gate.py
 echo '[RUN] Updater release manifest tests (Python)'
 python3 scripts/test-release-manifest.py
+echo '[RUN] Automatic release policy tests (Python)'
+python3 scripts/test-release-ready.py
 echo '[RUN] Full native Rust suite (includes fake Steam and rollback tests)'
 cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=2
 echo '[RUN] TypeScript typecheck and Vite production build'

@@ -29,7 +29,11 @@ Back up the previous source before making release changes.
 
 ## Publish
 
-Commit the source, then use either method:
+A successful Linux native validation run on main automatically starts the signed release workflow. It publishes a new stable application version only when that version is newer than the latest release and its source is still the current main commit. Published versions are skipped. Each application update must increment the version before validation.
+
+The signed workflow repeats the build gate, verifies the package signature, and then creates the version tag and publishes the updater assets. Failed checks stop publication. The existing signing key remains in the Actions secret.
+
+For manual publication, use either method:
 
 1. Push a stable tag matching the application version, such as `v0.6.7`.
 2. Open **Actions → Signed Linux release → Run workflow**, select `main`, and enter the matching tag.

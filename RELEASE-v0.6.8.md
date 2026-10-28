@@ -9,6 +9,8 @@
 
 ## Added
 
+- Automatic signed publication of new stable versions after successful validation on main.
+
 - Desktop and applications-menu shortcuts for registered Windows games. Shortcuts use the saved runtime, prefix, and working directory without opening the main window.
 - Registration of existing Windows games with their original prefix, without copying or reinstalling game files.
 - A bounded executable search in a profile’s Windows C: drive and original installer folder.
