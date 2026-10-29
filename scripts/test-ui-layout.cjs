@@ -52,6 +52,11 @@ let browser;
    if(width===1200||width===850)await page.screenshot({path:path.join(output,`${width}-${name.replaceAll(' ','-')}.jpg`),fullPage:true,type:'jpeg',quality:80});
    if(width===1200){const a=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();results.push({width,name,violations:a.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});}
    else results.push({width,name,layout:'passed'});
+   if(width===1200&&name==='Home'){
+    await page.getByRole('button',{name:/^Scan your library/}).hover();
+    const hover=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+    results.push({width,name:'Home primary action hover',violations:hover.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+   }
   }
  }
  await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();await page.getByRole('button',{name:/Black Myth: Wukong/}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});

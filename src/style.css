@@ -79,7 +79,7 @@ input:disabled, select:disabled { opacity: .55; }
 }
 .pm-action-card:hover { border-color: #8bbfff65; background: #1a2b43; }
 .pm-action-card.featured { background: linear-gradient(125deg, #2e65ac, #234d84); border-color: #8bbfff40; }
-.pm-action-card.featured:hover { background: linear-gradient(125deg, #346db5, #28558f); }
+.pm-action-card.featured:hover { background: linear-gradient(125deg, #2f64a9, #28558f); }
 .pm-action-icon { color: var(--pm-accent); display: grid; place-items: center; }
 .pm-action-icon svg { width: 23px; height: 23px; }
 .pm-action-card.featured .pm-action-icon { color: #d8e9ff; }
