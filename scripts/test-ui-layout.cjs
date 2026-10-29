@@ -87,9 +87,10 @@ let browser;
  const touch=await touchContext.newPage();touch.on('pageerror',e=>errors.push(e.message));
  await touch.addInitScript(fixture);await touch.goto(address);await touch.getByText('6',{exact:true}).waitFor();
  for(const name of ['Home','My Games','Windows Games','Settings']){
-  await touch.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).click();
+  await touch.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).tap();
+  await touch.waitForFunction(()=>matchMedia('(any-pointer: coarse)').matches);
   const small=await touch.evaluate(()=>[...document.querySelectorAll('button,summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&(r.width<43.5||r.height<43.5)}).map(el=>el.textContent));
-  if(small.length)throw Error('Small Deck touch targets on '+name+': '+JSON.stringify(small));
+  if(small.length)throw Error('Small Deck touch targets on '+name+': '+JSON.stringify({small,media:await touch.evaluate(()=>({coarse:matchMedia('(any-pointer: coarse)').matches,size:getComputedStyle(document.documentElement).getPropertyValue('--pm-control-size')}))}));
   if(await touch.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Deck touch layout overflow: '+name);
   results.push({name:'Deck touch: '+name,layout:'passed'});
   if(name==='My Games'){
