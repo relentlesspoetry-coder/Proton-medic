@@ -58,12 +58,14 @@ fn capture(mut input: impl Read + AsRawFd, output: File, stop: Arc<AtomicBool>) 
     tail.finish()
 }
 #[derive(Clone)]
-struct Process { pid: u32, parent: u32, group: u32, start: u64, state: char }
+pub(crate) struct Process { pub(crate) pid: u32, pub(crate) parent: u32, pub(crate) group: u32, pub(crate) start: u64, pub(crate) state: char, pub(crate) metrics: Option<(u64,u64)> }
 fn parse_process(pid: u32, stat: &str) -> Option<Process> {
     // comm may contain spaces and parentheses. Fields after its final ')' are fixed.
     let fields: Vec<_> = stat.rsplit_once(')')?.1.split_whitespace().collect();
     Some(Process { pid, state: fields.first()?.chars().next()?, parent: fields.get(1)?.parse().ok()?,
-        group: fields.get(2)?.parse().ok()?, start: fields.get(19)?.parse().ok()? })
+        group: fields.get(2)?.parse().ok()?, start: fields.get(19)?.parse().ok()?,
+        metrics: fields.get(11).and_then(|s|s.parse::<u64>().ok()).zip(fields.get(12).and_then(|s|s.parse::<u64>().ok()))
+            .zip(fields.get(21).and_then(|s|s.parse::<u64>().ok())).map(|((user,kernel),rss)|(user.saturating_add(kernel),rss)) })
 }
 fn processes() -> io::Result<Vec<Process>> {
     let mut result = vec![];
@@ -89,7 +91,12 @@ fn family_alive(all: &[Process], group: u32, known: &mut HashMap<u32, u64>) -> b
     for p in all.iter().filter(|p| family.contains(&p.pid)) { known.insert(p.pid, p.start); }
     all.iter().any(|p| family.contains(&p.pid) && !matches!(p.state, 'Z' | 'X'))
 }
-pub fn supervise(mut child: Child, out: ChildStdout, err: ChildStderr, stdout: File, stderr: File) -> (io::Result<ExitStatus>, bool) {
+#[cfg(test)]
+pub fn supervise(child: Child, out: ChildStdout, err: ChildStderr, stdout: File, stderr: File) -> (io::Result<ExitStatus>, bool) {
+    supervise_monitored(child,out,err,stdout,stderr,None)
+}
+pub fn supervise_monitored(mut child: Child, out: ChildStdout, err: ChildStderr, stdout: File, stderr: File, logs: Option<&std::path::Path>) -> (io::Result<ExitStatus>, bool) {
+    let mut monitor=logs.map(crate::windows_games::monitor::Sampler::new);
     let stop = Arc::new(AtomicBool::new(false));
     let signal = stop.clone(); let a = thread::spawn(move || capture(out, stdout, signal));
     let signal = stop.clone(); let b = thread::spawn(move || capture(err, stderr, signal));
@@ -101,7 +108,9 @@ pub fn supervise(mut child: Child, out: ChildStdout, err: ChildStderr, stdout: F
         // The process group survives parent exit. Remember observed descendants that change groups.
         // If /proc cannot be inspected, keep the profile locked and retry rather than assume it idle.
         if let Ok(all) = processes() {
-            if !family_alive(&all, group, &mut known) && status.is_some() { break; }
+            let alive=family_alive(&all, group, &mut known);
+            if let Some(monitor)=monitor.as_mut(){monitor.observe(&all,&known);}
+            if !alive && status.is_some() { break; }
         }
         thread::sleep(Duration::from_millis(200));
     }
@@ -135,15 +144,20 @@ pub fn supervise(mut child: Child, out: ChildStdout, err: ChildStderr, stdout: F
     }
     #[test] fn pid_reuse_does_not_keep_an_unrelated_process_in_the_family() {
         let mut known = HashMap::from([(12, 1)]);
-        let all = vec![Process {pid:12,parent:1,group:99,start:2,state:'S'}];
+        let all = vec![Process {pid:12,parent:1,group:99,start:2,state:'S',metrics:None}];
         assert!(!family_alive(&all, 50, &mut known)); assert!(known.is_empty());
     }
     #[test] fn observed_descendants_remain_tracked_after_reparenting_and_setsid() {
         let mut known = HashMap::from([(12, 1)]);
-        let all = vec![Process {pid:12,parent:1,group:99,start:1,state:'S'},Process {pid:13,parent:12,group:99,start:2,state:'S'}];
+        let all = vec![Process {pid:12,parent:1,group:99,start:1,state:'S',metrics:None},Process {pid:13,parent:12,group:99,start:2,state:'S',metrics:None}];
         assert!(family_alive(&all, 50, &mut known)); assert_eq!(known.get(&13),Some(&2));
-        let zombies = vec![Process {pid:12,parent:1,group:99,start:1,state:'Z'}];
+        let zombies = vec![Process {pid:12,parent:1,group:99,start:1,state:'Z',metrics:None}];
         assert!(!family_alive(&zombies,50,&mut known));
+    }
+    #[test] fn proc_stat_parsing_uses_own_cpu_ticks_and_resident_pages() {
+        let mut fields=vec!["0";22];fields[0]="S";fields[1]="1";fields[2]="50";fields[11]="120";fields[12]="30";fields[13]="9000";fields[14]="8000";fields[19]="12345";fields[21]="256";
+        let process=parse_process(50,&format!("50 (game (worker)) {}",fields.join(" "))).unwrap();
+        assert_eq!(process.start,12345);assert_eq!(process.metrics,Some((150,256)));
     }
     #[test] fn ring_retains_chronological_tail_across_multiple_wraps() {
         let mut tail = Tail::new(tempfile("ring"));

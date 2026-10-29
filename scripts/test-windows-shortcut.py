@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
 
 parser = argparse.ArgumentParser()
@@ -71,6 +72,38 @@ class WindowsShortcutTests(unittest.TestCase):
         self.assertEqual(history['exitCode'], 0)
         self.assertGreaterEqual(history['endedAt'], history['startedAt'])
         self.assertTrue(history['runtime'])
+        self.assertFalse((self.profile/'logs'/saved['runId']/'monitor-sample.json').exists())
+
+    def test_opt_in_monitor_includes_shortcut_child_processes(self):
+        runtime = self.home / 'bin/wine'
+        runtime.write_text('#!/usr/bin/python3\nimport subprocess,sys\nchild=subprocess.Popen([sys.executable,"-c","import time; data=bytearray(16*1024*1024); time.sleep(5)"])\nchild.wait()\n')
+        process = subprocess.Popen([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)], env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: process.wait(timeout=15))
+        deadline = time.monotonic() + 10
+        sample = None
+        while time.monotonic() < deadline and process.poll() is None:
+            saved = json.loads((self.profile/'profile.json').read_text())
+            if saved.get('runId'):
+                logs = self.profile/'logs'/saved['runId']
+                temp = logs/'request-fixture.tmp'
+                temp.write_text(json.dumps(dict(expiresAt=int(time.time()*1000)+6000)))
+                temp.replace(logs/'monitor-request.json')
+                try:
+                    sample = json.loads((logs/'monitor-sample.json').read_text())
+                except FileNotFoundError:
+                    pass
+                if sample and sample['processCount'] >= 2 and sample['cpuPercent'] is not None:
+                    break
+            time.sleep(0.1)
+        self.assertIsNotNone(sample)
+        self.assertGreaterEqual(sample['processCount'], 2)
+        self.assertGreater(sample['memoryBytes'], 8*1024*1024)
+        self.assertGreaterEqual(sample['peakMemoryBytes'], sample['memoryBytes'])
+        self.assertIsNotNone(sample['cpuPercent'])
+        self.assertGreaterEqual(sample['cpuPercent'], 0)
+        self.assertFalse(sample['partial'])
+        self.assertEqual(sample['runId'], saved['runId'])
+        self.assertEqual(process.wait(timeout=15), 0)
 
     def test_saved_arguments_and_working_directory_reach_the_native_launcher_literally(self):
         working = self.home / 'Game Working Directory'

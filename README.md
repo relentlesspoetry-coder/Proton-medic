@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.16 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.17 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -19,6 +19,7 @@ Proton Medic helps Linux players diagnose game problems, manage installed Proton
 - Save per-game runtime, literal launch arguments, and working directory settings with backups and reset support.
 - Register installed Windows games using their existing prefix, including game files on other drives.
 - Create desktop and applications-menu shortcuts that reuse a game’s saved environment and extracted icon.
+- Optionally monitor CPU, RAM, peak RAM, and observed child processes for a running Windows game or installer.
 - View recent Windows game and installer runs with runtime names, exit results, and log error summaries.
 - Rename Windows game profiles, remove them from the list, and restore them without deleting game files.
 - Display embedded Windows game icons and locally cached Steam artwork.
@@ -31,7 +32,7 @@ The update button appears at the top right on every page, with the installed ver
 
 ### Steam Deck / SteamOS
 
-1. Switch to **Desktop Mode** and download `proton-medic_0.6.16_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
+1. Switch to **Desktop Mode** and download `proton-medic_0.6.17_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
 2. Move it to a permanent folder such as `~/Applications`. Game shortcuts refer to this location.
 3. In Dolphin, open **Properties → Permissions**, enable **Is executable**, then open the AppImage.
 
@@ -40,7 +41,7 @@ GTK, WebKitGTK, and application fonts travel with the AppImage. No DEB installat
 If the system reports that FUSE is missing, run it without FUSE from Konsole:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.16_amd64.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.17_amd64.AppImage"
 ```
 
 The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35 or newer. Graphics drivers and the desktop session come from the operating system. Steam and an installed Proton or Wine runtime are required for their respective game-launching features; the application does not install or replace graphics drivers or game runtimes.
@@ -50,7 +51,7 @@ The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35
 Download the amd64 DEB and install it using a package manager so that dependencies are installed too:
 
 ```bash
-sudo apt install ./proton-medic_0.6.16_amd64.deb
+sudo apt install ./proton-medic_0.6.17_amd64.deb
 ```
 
 The DEB requires an Ubuntu 24.04-compatible x86_64 system with glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. Use the AppImage on SteamOS. Existing installations can check for signed updates in the app.
@@ -64,6 +65,8 @@ When setup closes successfully, the game card suggests likely executables. Choos
 Expand **Game settings and logs → Edit launch settings** to select a runtime, enter one launch argument per line, or choose a working directory. Spaces inside each argument are preserved. Changes keep the same prefix and are backed up. **Reset launch settings** restores the original runtime, clears arguments, and uses the executable’s folder; the current settings are backed up first. Existing shortcuts automatically use saved settings.
 
 Expand **Launch history** on a Windows game card to view its latest 20 recorded runs, including desktop shortcut launches. Entries show the runtime used, start time, elapsed time when available, runtime exit result, and recognized log errors. Unknown exits and interrupted runs are labeled explicitly. History begins with v0.6.16; existing logs remain available. Exit code 0 does not confirm that gameplay worked correctly.
+
+While a game or installer is running, choose **Monitor resources** on its Windows game card. The panel shows CPU usage, estimated resident RAM, peak RAM during monitoring, process count, and a short memory trend. Monitoring is off by default, follows one selected game, and pauses when the window is hidden. It also works with Proton Medic desktop shortcuts. Readings include observed child processes; CPU 100% represents one core, and shared memory can be counted more than once in RAM totals.
 
 Use **Add installed game** for an installation missing from the list. Select its executable and the existing prefix containing `drive_c` and `system.reg`; use the runtime that previously ran it. This registers the game without reinstalling or copying it. Games installed through Proton Medic may initially appear under their installer’s name. Use **Rename** on the game card to change its display name. **Remove from list** hides the profile while preserving its game files, prefix, and shortcuts. Expand **Removed games** to restore it.
 
@@ -107,3 +110,5 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.15 changes](RELEASE-v0.6.15.md)
 
 - [v0.6.16 changes](RELEASE-v0.6.16.md)
+
+- [v0.6.17 changes](RELEASE-v0.6.17.md)

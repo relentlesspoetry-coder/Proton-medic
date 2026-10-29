@@ -1,5 +1,6 @@
 //! User-approved Windows installers in dedicated prefixes. Never executes a shell.
 pub mod history;
+pub mod monitor;
 use crate::{diagnostics, scanner};
 use serde::{Deserialize, Serialize};
 use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{Read, Seek, SeekFrom, Write},
@@ -205,7 +206,7 @@ fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<G
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);
     std::thread::spawn(move||{
         let _profile_lock_guard=_profile_lock;
-        let (status,capture_ok)=crate::runtime_session::supervise(child,out,err,stdout,stderr);
+        let (status,capture_ok)=crate::runtime_session::supervise_monitored(child,out,err,stdout,stderr,Some(&logs));
         record.exit_code=status.as_ref().ok().and_then(|s|s.code());
         record.state=if status.as_ref().is_ok_and(|s|s.success()){if install{"installer-exited"}else{"game-exited"}}else{"process-failed"}.into();
         record.message=if install{"Setup process ended. Select the installed game executable to continue."}else{"Game process ended."}.into();

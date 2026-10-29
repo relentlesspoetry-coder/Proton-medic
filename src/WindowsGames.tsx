@@ -8,6 +8,7 @@ import { InstallationAssistant } from './InstallationAssistant';
 import { WindowsLaunchSettings } from './WindowsLaunchSettings';
 import { GameIcon } from './GameIcon';
 import { LaunchHistory } from './LaunchHistory';
+import { ResourceMonitor } from './ResourceMonitor';
 interface LogReport { findings: Finding[]; logs: { name: string; status: string; truncated: boolean }[] }
 export interface Runtime { id: string; name: string; kind: string }
 export interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null; launchArguments?: string[]; workingDirectory?: string | null }
@@ -19,6 +20,7 @@ const STATUS_LABELS: Record<string, string> = { 'installer-running': 'Installing
 const statusLabel = (game: Game) => STATUS_LABELS[game.state] ?? 'Setup needed';
 
 export function WindowsGames() {
+  const [monitoredGame, setMonitoredGame] = useState<string|null>(null);
   const [library, setLibrary] = useState<Library>(empty);
   const [loaded, setLoaded] = useState(false);
   const [mode, setMode] = useState<'install' | 'existing'>('install');
@@ -91,7 +93,7 @@ export function WindowsGames() {
     <section className="pm-section" aria-label="Managed Windows games">
       <div className="pm-section-heading"><div><h2>Your Windows games</h2><p>Choose a game to launch, rename, or manage.</p></div></div>
       {!library.games.length && <p role="status">{loaded ? 'No Windows games have been added yet.' : refreshError ? 'Windows game library unavailable.' : 'Loading Windows games…'}</p>}
-      <PagedList className="pm-windows-list" items={library.games} render={game => <WindowsGameCard key={game.id} game={game} runtimes={library.runtimes} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
+      <PagedList className="pm-windows-list" items={library.games} render={game => <WindowsGameCard key={game.id} monitoring={monitoredGame===game.id} onMonitor={enabled=>setMonitoredGame(enabled?game.id:null)} game={game} runtimes={library.runtimes} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
       {!!library.removedGames?.length && <details className="pm-update-details"><summary>Removed games ({library.removedGames.length})</summary><p>Game files and prefixes are kept. Restore a game to show it in this list again.</p><div className="pm-removed-games">{library.removedGames.map(game => <div className="pm-removed-game" key={game.id}><span>{game.name}</span><button disabled={busy || isRunning(game)} className="pm-button pm-button-secondary" onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: false, confirmed: true }); await refresh(); })}>Restore {game.name}</button></div>)}</div></details>}
 
     </section>
@@ -120,7 +122,7 @@ export function WindowsGames() {
   </>;
 }
 
-function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify, forget }: { game: Game; runtimes: Runtime[]; busy: boolean; run: (task: () => Promise<void>) => Promise<void>; remember: (game: Game) => void; refresh: () => Promise<void>; notify: (message: string) => void; forget: (id: string) => void }) {
+function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify, forget, monitoring, onMonitor }: { monitoring:boolean; onMonitor:(enabled:boolean)=>void; game: Game; runtimes: Runtime[]; busy: boolean; run: (task: () => Promise<void>) => Promise<void>; remember: (game: Game) => void; refresh: () => Promise<void>; notify: (message: string) => void; forget: (id: string) => void }) {
   const [search, setSearch] = useState<ExecutableSearch | null>(null);
   const [candidate, setCandidate] = useState('');
   const [name, setName] = useState(game.name);
@@ -159,6 +161,7 @@ function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify,
       {search.executables.length ? <><label>Game executable<select aria-label={`Executable for ${game.name}`} value={candidate} onChange={e => setCandidate(e.target.value)}><option value="">Choose a game executable…</option>{search.executables.map(path => <option key={path} value={path}>{path}</option>)}</select></label><button className="pm-button pm-button-primary" disabled={busy || running || !candidate} onClick={() => void run(() => select(candidate))}>Use selected executable</button></> : <p>No game executables found. Use Select installed game .exe to choose a file on another drive.</p>}
       {search.truncated && <p>The search reached its limit. You can choose a file manually.</p>}
     </div>}
+    <ResourceMonitor game={game} enabled={monitoring} onToggle={onMonitor}/>
     <LaunchHistory game={game}/>
     <details className="pm-update-details"><summary>Game settings and logs</summary>
       <WindowsLaunchSettings game={game} runtimes={runtimes} busy={busy} run={run} onSave={async(value,expected)=>{remember(await invoke<Game>('save_windows_launch_settings',{id:game.id,value,expected,confirmed:true}));await refresh();notify('Launch settings saved with a profile backup. Existing shortcuts use the saved settings.');}} onReset={async(expected)=>{remember(await invoke<Game>('reset_windows_launch_settings',{id:game.id,expected,confirmed:true}));await refresh();notify('Original launch settings restored. Previous settings were backed up.');}}/>
