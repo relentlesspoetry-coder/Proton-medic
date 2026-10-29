@@ -195,17 +195,17 @@ export default function App() {
       <AppUpdater/>
       {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
       {page === 'home' && <>
-        <div className="pm-welcome"><div><p className="pm-eyebrow">PROTON MEDIC</p><h1>Your games, ready to play.</h1><p>Scan your library, diagnose a game, or run a Windows installer.</p></div></div>
-        <div className="pm-action-grid">
-          <button className="pm-action-card featured" onClick={() => void scanGames()} disabled={loading}><div className="pm-action-icon"><Search size={28}/></div><span><strong>{loading ? 'Scanning your games...' : 'Scan games'}</strong><small>Find your installed Steam games</small></span>{loading ? <RefreshCw size={18} className="pm-spin"/> : <ArrowRight size={20}/>}</button>
-          <button className="pm-action-card" onClick={showAllGames}><div className="pm-action-icon"><Gamepad2 size={32}/></div><span><strong>Help with a game</strong><small>Check logs and explore fixes</small></span><ArrowRight size={20}/></button>
-          <button className="pm-action-card" onClick={() => setPage('windows')}><div className="pm-action-icon"><Download size={32}/></div><span><strong>Install a Windows game</strong><small>Start with an .exe installer</small></span><ArrowRight size={20}/></button>
-        </div>
+        <div className="pm-welcome"><div><h1>Your library.<br/><span>In good hands.</span></h1><p>Find your games, understand the issues, and choose what happens next.</p></div></div>
         <div className="pm-metrics">
           <div className="pm-metric steam"><div className="pm-metric-icon"><CheckCircle2 size={24}/></div><div><strong>{status}</strong><span>{scan?.installations[0]?.kind ?? 'Native or Flatpak'} Steam</span></div></div>
           <div className="pm-metric"><div className="pm-metric-icon"><Gamepad2 size={25}/></div><div><strong className="pm-metric-number">{scan?.games.length ?? '—'}</strong><span>games found</span></div></div>
           <div className="pm-metric"><div className="pm-metric-icon attention"><AlertCircle size={24}/></div><div><strong className="pm-metric-number pm-error-number">{scan && report ? problems.length : '—'}</strong><span>{analyzing ? 'checking logs...' : 'need attention'}</span></div></div>
           <div className="pm-metric"><div className="pm-metric-icon"><Clock3 size={24}/></div><div><strong>Last scan</strong><span>{lastScan ? lastScan.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Not yet'}</span></div></div>
+        </div>
+        <div className="pm-action-grid">
+          <button className="pm-action-card featured" onClick={() => void scanGames()} disabled={loading}><div className="pm-action-icon"><Search size={28}/></div><span><strong>{loading ? 'Scanning library…' : 'Scan your library'}</strong><small>Discover installed Steam games</small></span>{loading ? <RefreshCw size={18} className="pm-spin"/> : <ArrowRight size={20}/>}</button>
+          <button className="pm-action-card" onClick={showAllGames}><div className="pm-action-icon"><Gamepad2 size={32}/></div><span><strong>Explore your games</strong><small>Logs, launch tests, and repairs</small></span><ArrowRight size={20}/></button>
+          <button className="pm-action-card" onClick={() => setPage('windows')}><div className="pm-action-icon"><Download size={32}/></div><span><strong>Windows games</strong><small>Install or add an existing game</small></span><ArrowRight size={20}/></button>
         </div>
         <section className="pm-section pm-home-games"><div className="pm-section-heading"><div><h2>Games needing attention</h2><p>Based on the game files and logs available on this computer.</p></div><button className="pm-subtle-button" onClick={showAllGames}>View all games <ArrowRight size={16}/></button></div>
           {loading && !scan ? <Empty title="Checking Steam libraries" detail="Looking for installed games and Proton logs."/> : !scan?.games.length ? <Empty title="No games found yet" detail="Install or launch Steam, then select Scan for Games."/> : !report && analyzing ? <Empty title="Checking for issues" detail="Reading existing Proton logs. No changes are made."/> : problems.length === 0 ? <Empty title="No known issues found" detail="Open a game in My Games for diagnostics and a launch test."/> : <div className="pm-problem-list">{problems.slice(0, 5).map(game => <GameRow key={gameKey(game)} game={game} diagnostic={issueByGame.get(gameKey(game))} onClick={() => openGame(game)} />)}</div>}
@@ -254,7 +254,7 @@ export default function App() {
 
 function GameRow({ game, diagnostic, onClick }: { game: Game; diagnostic?: GameDiagnostics; onClick: () => void }) {
   const issue = getIssue(game, diagnostic);
-  return <button className="pm-game-row" onClick={onClick} type="button"><GameIcon source={{ kind: 'steam', appId: game.appId, libraryPath: game.libraryPath }}/><span className="pm-game-title"><strong>{game.name}</strong><small>Steam · App {game.appId}</small></span><span className="pm-game-issue"><StatusTag tone={issue.tone} label={issue.label}/><small>{issue.note}</small></span><span className="pm-view-game">View details <ArrowRight size={16}/></span></button>;
+  return <button className="pm-game-row" onClick={onClick} type="button"><GameIcon source={{ kind: 'steam', appId: game.appId, libraryPath: game.libraryPath }}/><span className="pm-game-title"><strong>{game.name}</strong><small>Steam · App {game.appId}</small></span><span className="pm-game-issue"><StatusTag tone={issue.tone} label={issue.label}/></span><span className="pm-view-game" aria-hidden="true"><ArrowRight size={16}/></span></button>;
 }
 function Empty({ title, detail }: { title: string; detail: string }) { return <div className="pm-empty"><Gamepad2 size={29}/><strong>{title}</strong><p>{detail}</p></div>; }
 function CheckRow({ label, detail, state }: { label: string; detail: string; state: 'ok' | 'warning' | 'neutral' }) {

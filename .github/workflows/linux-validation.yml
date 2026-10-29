@@ -7,7 +7,32 @@ on:
 permissions:
   contents: read
 jobs:
+  interface:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build interface
+        run: npm ci && npm run build
+      - name: Install isolated browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pm-ui-tools" --ignore-scripts --no-audit --no-fund @playwright/test@1.62.1 @axe-core/playwright@4.13.0
+          node "$RUNNER_TEMP/pm-ui-tools/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Check rendered layouts and accessibility
+        env:
+          PM_UI_MODULES: ${{ runner.temp }}/pm-ui-tools/node_modules
+          PM_UI_OUTPUT: ${{ runner.temp }}/pm-ui-results
+        run: node scripts/test-ui-layout.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proton-medic-interface
+          path: ${{ runner.temp }}/pm-ui-results
   native-linux:
+    needs: interface
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
