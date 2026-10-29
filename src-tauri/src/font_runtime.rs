@@ -30,7 +30,7 @@ pub fn initialize()->Result<Option<FontRuntime>,String>{
 fn restore(command:&mut Command,original:Option<&OsString>){match original{Some(value)=>{command.env("FONTCONFIG_FILE",value);},None=>{command.env_remove("FONTCONFIG_FILE");}}}
 /// Steam/Wine/Proton retain the user's original font environment.
 pub fn child_command(binary:impl AsRef<std::ffi::OsStr>)->Command{
-    let mut command=Command::new(binary);if let Some(original)=ORIGINAL.get(){restore(&mut command,original.as_ref());}command
+    let mut command=Command::new(binary);if let Some(original)=ORIGINAL.get(){restore(&mut command,original.as_ref());}crate::portable::host_environment(&mut command);command
 }
 #[cfg(test)] mod tests{
     use super::*;

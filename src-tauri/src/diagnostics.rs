@@ -6,7 +6,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -336,7 +336,7 @@ pub fn probe_vulkan() -> VulkanProbe {
         return VulkanProbe { status: "unavailable".into(), exit_code: None, output: String::new(),
             detail: "vulkaninfo is not installed or is not in PATH. On Zorin/Ubuntu, the optional package is vulkan-tools.".into() };
     };
-    let mut child = match Command::new(binary).arg("--summary").stdin(Stdio::null())
+    let mut child = match crate::font_runtime::child_command(binary).arg("--summary").stdin(Stdio::null())
         .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn() {
         Ok(child) => child,
         Err(e) => return VulkanProbe { status: "failed".into(), exit_code: None, output: String::new(), detail: format!("Cannot launch vulkaninfo: {e}") },

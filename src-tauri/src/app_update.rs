@@ -2,7 +2,7 @@
 use std::{path::{Path, PathBuf}, process::Stdio, sync::{OnceLock, RwLock, RwLockReadGuard}};
 static UPDATING: RwLock<bool> = RwLock::new(false);
 static EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
-pub fn initialize() { if let Ok(path) = std::env::current_exe() { let _ = EXECUTABLE.set(path); } }
+pub fn initialize() { if let Ok(path) = crate::portable::executable() { let _ = EXECUTABLE.set(path); } }
 pub fn activity() -> Result<RwLockReadGuard<'static, bool>, String> { activity_in(&UPDATING) }
 fn activity_in(state: &RwLock<bool>) -> Result<RwLockReadGuard<'_, bool>, String> {
     let guard = state.read().map_err(|_| "Update state unavailable")?;

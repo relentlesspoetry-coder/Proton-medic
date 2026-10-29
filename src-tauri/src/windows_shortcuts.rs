@@ -1,5 +1,5 @@
 //! Desktop launchers reuse the saved runtime and prefix through the native CLI.
-use std::{fs::{self,OpenOptions},io::Write,os::unix::fs::OpenOptionsExt,path::{Path,PathBuf},process::Command};
+use std::{fs::{self,OpenOptions},io::Write,os::unix::fs::OpenOptionsExt,path::{Path,PathBuf}};
 
 fn value(s:&str)->Result<String,String>{
     if s.chars().any(char::is_control){return Err("Shortcut fields cannot contain control characters".into());}
@@ -51,7 +51,7 @@ fn write_launcher(path:&Path,content:&[u8],backups:&Path)->Result<(),String>{
 }
 fn desktop_dir()->Result<PathBuf,String>{
     let home=std::env::var_os("HOME").map(PathBuf::from).ok_or("Home directory unavailable")?;
-    let configured=Command::new("xdg-user-dir").arg("DESKTOP").output().ok().filter(|o|o.status.success()).and_then(|o|String::from_utf8(o.stdout).ok()).map(|s|PathBuf::from(s.trim_end_matches(['\r','\n'])));
+    let configured=crate::font_runtime::child_command("xdg-user-dir").arg("DESKTOP").output().ok().filter(|o|o.status.success()).and_then(|o|String::from_utf8(o.stdout).ok()).map(|s|PathBuf::from(s.trim_end_matches(['\r','\n'])));
     let desktop=configured.unwrap_or_else(||home.join("Desktop"));
     if !desktop.is_absolute() || desktop==home || !desktop.is_dir(){return Err("No desktop folder is configured. Enable a desktop folder before creating a desktop shortcut.".into());}
     Ok(desktop)
@@ -67,13 +67,13 @@ pub fn create(id:String,confirmed:bool)->Result<Vec<String>,String>{
         let path=app_data.join("game-shortcut-icon.png");
         create_file(&path,include_bytes!("../icons/128x128.png"),0o600)?;path
     };
-    let content=entry(&name,&std::env::current_exe().map_err(|e|e.to_string())?,&root,&id,&icon)?;
+    let content=entry(&name,&crate::portable::executable()?,&root,&id,&icon)?;
     let filename=format!("proton-medic-game-{id}.desktop");let mut paths=vec![];
     for dir in [applications,desktop]{
         let path=dir.join(&filename);write_launcher(&path,content.as_bytes(),&root.join(&id).join("shortcut-backups"))?;
         paths.push(path.to_string_lossy().into());
         // GNOME may still ask the player to Allow Launching on first use.
-        let _=Command::new("gio").args(["set"]).arg(&path).args(["metadata::trusted","true"]).output();
+        let _=crate::font_runtime::child_command("gio").args(["set"]).arg(&path).args(["metadata::trusted","true"]).output();
     }
     Ok(paths)
 }
@@ -85,13 +85,14 @@ pub fn handle_cli(args:Vec<String>)->Option<i32>{
     }else{Err("Invalid game shortcut arguments. Recreate the shortcut in Proton Medic.".into())};
     match result{Ok(())=>Some(0),Err(error)=>{
         eprintln!("Proton Medic: {error}");
-        let _=Command::new("notify-send").args(["--app-name=Proton Medic","--","Game could not be launched",&error]).output();
+        let _=crate::font_runtime::child_command("notify-send").args(["--app-name=Proton Medic","--","Game could not be launched",&error]).output();
         Some(1)
     }}
 }
 #[cfg(test)]
 mod tests{
     use super::*;
+    use std::process::Command;
     #[test] fn entry_uses_profile_id_and_quotes_paths_without_a_shell(){
         let text=entry("Game & Friends",Path::new("/opt/Proton Medic/proton-medic"),Path::new("/data/My Games"),"123-456",Path::new("/icon.png")).unwrap();
         assert!(text.contains("Exec=\"/opt/Proton Medic/proton-medic\" --launch-windows-game \"123-456\" --profile-root \"/data/My Games\""));

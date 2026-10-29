@@ -1,5 +1,6 @@
 mod game_icons;
 mod app_update;
+mod portable;
 pub mod windows_shortcuts;
 #[tauri::command]
 fn startup_diagnostic(message:String){

@@ -44,12 +44,13 @@ The workflow:
 
 - Checks that the tag matches the application version.
 - Runs frontend, Rust, fixture, build-gate, and manifest tests.
-- Builds the amd64 DEB on Ubuntu 24.04.
+- Builds the amd64 DEB on Ubuntu 24.04 and AppImage on Ubuntu 22.04.
+- Tests portable launching in a container without system GTK, WebKitGTK, or FUSE.
 - Signs the installer with its version.
 - Verifies the signature and rejects an altered copy.
-- Publishes the DEB, signature, `SHA256SUMS`, and `latest.json`.
+- Publishes both packages, their signatures, `SHA256SUMS`, and `latest.json`.
 
-Signing credentials are available only to the signing step. The manifest currently supports `linux-x86_64-deb`.
+Signing credentials are available only to the signing step. The manifest routes `linux-x86_64-deb` and `linux-x86_64-appimage` to separately signed packages. Both use the existing signing key.
 
 ## Verify a local package
 
@@ -71,4 +72,4 @@ The stable manifest URL is:
 
 https://github.com/relentlesspoetry-coder/proton-medic/releases/latest/download/latest.json
 
-Requirements: Ubuntu 24.04-compatible amd64 Linux, glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1.
+DEB requirements: Ubuntu 24.04-compatible amd64 Linux, glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. The AppImage bundles the UI libraries and requires x86_64 Linux with glibc 2.35 or newer and working system graphics drivers. Keep the AppImage in a permanent, user-writable folder for updates and game shortcuts.

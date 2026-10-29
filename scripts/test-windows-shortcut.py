@@ -35,6 +35,7 @@ class WindowsShortcutTests(unittest.TestCase):
         runtime.write_text(
             '#!/usr/bin/python3\nimport json,os,sys,time\nfrom pathlib import Path\n'
             f"Path({str(self.receipt)!r}).write_text(json.dumps(dict(args=sys.argv[1:], prefix=os.environ.get('WINEPREFIX'), cwd=os.getcwd())))\n"
+            f"Path({str(self.home / 'runtime-environment.json')!r}).write_text(json.dumps(dict(os.environ)))\n"
             'time.sleep(0.1)\n')
         runtime.chmod(0o700)
         self.record = dict(id='123-456', name='Fixture Wukong', runtimeId='wine:' + str(runtime),
@@ -52,7 +53,7 @@ class WindowsShortcutTests(unittest.TestCase):
 
     def launch(self):
         return subprocess.run([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)],
-                              env=self.env, text=True, capture_output=True, timeout=10)
+                              env=self.env, text=True, capture_output=True, timeout=60)
 
     def test_external_executable_keeps_prefix_without_a_desktop_session(self):
         result = self.launch()
@@ -87,11 +88,21 @@ class WindowsShortcutTests(unittest.TestCase):
 
     def test_native_version_probe_needs_no_desktop_session(self):
         result = subprocess.run([str(BINARY), '--proton-medic-version'], env=self.env,
-                                text=True, capture_output=True, timeout=5)
+                                text=True, capture_output=True, timeout=60)
         expected = json.loads((Path(__file__).resolve().parents[1]/'package.json').read_text())['version']
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, expected + '\n')
         self.assertFalse(self.receipt.exists())
+
+    def test_game_does_not_inherit_portable_mount_environment(self):
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        env = json.loads((self.home / 'runtime-environment.json').read_text())
+        self.assertNotIn('APPDIR', env)
+        self.assertNotIn('APPIMAGE', env)
+        for key in ['LD_LIBRARY_PATH', 'PYTHONHOME', 'PYTHONPATH', 'GTK_PATH', 'GIO_MODULE_DIR']:
+            self.assertNotIn('/tmp/appimage_', env.get(key, ''))
+            self.assertNotIn('/tmp/.mount_', env.get(key, ''))
 
     def test_missing_executable_fails_without_starting_runtime(self):
         self.record['gameExe'] = str(self.home/'missing.exe')

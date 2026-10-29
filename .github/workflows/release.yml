@@ -44,8 +44,14 @@ jobs:
           TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           REQUESTED_TAG: ${{ inputs.tag || (github.event_name == 'push' && github.ref_name) || '' }}
         run: python3 scripts/release_ready.py
-  release:
+  portable:
     needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    uses: ./.github/workflows/portable-build.yml
+    with:
+      source: ${{ needs.prepare.outputs.sha }}
+  release:
+    needs: [prepare, portable]
     if: needs.prepare.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -80,6 +86,10 @@ jobs:
         env:
           CARGO_BUILD_JOBS: '2'
         run: bash scripts/build-zorin.sh --build
+      - uses: actions/download-artifact@v4
+        with:
+          name: proton-medic-portable
+          path: portable
       - name: Sign validated installer and generate updater manifest
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -93,10 +103,13 @@ jobs:
           mkdir release
           cp "src-tauri/target/release/bundle/deb/Proton Medic_${version}_amd64.deb" "release/proton-medic_${version}_amd64.deb"
           npm run tauri -- signer sign --app-version "$version" "release/proton-medic_${version}_amd64.deb"
-          python3 scripts/release_manifest.py --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY" --package "release/proton-medic_${version}_amd64.deb" --output release/latest.json
+          cp "portable/proton-medic_${version}_amd64.AppImage" release/
+          npm run tauri -- signer sign --app-version "$version" "release/proton-medic_${version}_amd64.AppImage"
+          cargo run --locked --manifest-path scripts/verify-signature/Cargo.toml -- src-tauri/tauri.conf.json "release/proton-medic_${version}_amd64.AppImage" "$version"
+          python3 scripts/release_manifest.py --tag "$RELEASE_TAG" --repository "$RELEASE_REPOSITORY" --package "release/proton-medic_${version}_amd64.deb" --appimage "release/proton-medic_${version}_amd64.AppImage" --output release/latest.json
           cargo run --locked --manifest-path scripts/verify-signature/Cargo.toml -- src-tauri/tauri.conf.json "release/proton-medic_${version}_amd64.deb" "$version"
           cd release
-          sha256sum *.deb > SHA256SUMS
+          sha256sum *.deb *.AppImage > SHA256SUMS
       - name: Publish release assets after all checks pass
         env:
           GH_TOKEN: ${{ github.token }}

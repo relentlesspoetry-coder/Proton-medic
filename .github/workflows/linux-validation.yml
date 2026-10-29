@@ -31,6 +31,11 @@ jobs:
         with:
           name: proton-medic-interface
           path: ${{ runner.temp }}/pm-ui-results
+  portable:
+    needs: interface
+    uses: ./.github/workflows/portable-build.yml
+    with:
+      source: ${{ github.sha }}
   native-linux:
     needs: interface
     runs-on: ubuntu-24.04

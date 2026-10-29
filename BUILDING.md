@@ -41,4 +41,13 @@ The DEB is written to `src-tauri/target/release/bundle/deb/`. It requires glibc 
 
 ## Release packages
 
-See [GITHUB-RELEASES.md](GITHUB-RELEASES.md) for signing and publishing. The current distribution format is an amd64 DEB. SteamOS needs a separate packaging path; do not disable its read-only system protection to install this package.
+See [GITHUB-RELEASES.md](GITHUB-RELEASES.md) for signing and publishing. Releases include an amd64 DEB and an AppImage. The portable workflow builds on Ubuntu 22.04 and checks the AppImage in a clean container without system GTK, WebKitGTK, or FUSE. The native GUI smoke test uses Xvfb and disposable Steam fixtures.
+
+To build an AppImage on Ubuntu 22.04, install the native dependencies above plus `patchelf` and `libfuse2`, then run:
+
+```bash
+npm ci
+APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri -- build --bundles appimage -- --locked
+```
+
+Keep SteamOS system protection enabled. Use the portable package for Steam Deck.
