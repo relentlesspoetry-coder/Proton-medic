@@ -7,6 +7,7 @@ import { PagedList } from './PagedList';
 import { InstallationAssistant } from './InstallationAssistant';
 import { WindowsLaunchSettings } from './WindowsLaunchSettings';
 import { GameIcon } from './GameIcon';
+import { LaunchHistory } from './LaunchHistory';
 interface LogReport { findings: Finding[]; logs: { name: string; status: string; truncated: boolean }[] }
 export interface Runtime { id: string; name: string; kind: string }
 export interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null; launchArguments?: string[]; workingDirectory?: string | null }
@@ -158,6 +159,7 @@ function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify,
       {search.executables.length ? <><label>Game executable<select aria-label={`Executable for ${game.name}`} value={candidate} onChange={e => setCandidate(e.target.value)}><option value="">Choose a game executable…</option>{search.executables.map(path => <option key={path} value={path}>{path}</option>)}</select></label><button className="pm-button pm-button-primary" disabled={busy || running || !candidate} onClick={() => void run(() => select(candidate))}>Use selected executable</button></> : <p>No game executables found. Use Select installed game .exe to choose a file on another drive.</p>}
       {search.truncated && <p>The search reached its limit. You can choose a file manually.</p>}
     </div>}
+    <LaunchHistory game={game}/>
     <details className="pm-update-details"><summary>Game settings and logs</summary>
       <WindowsLaunchSettings game={game} runtimes={runtimes} busy={busy} run={run} onSave={async(value,expected)=>{remember(await invoke<Game>('save_windows_launch_settings',{id:game.id,value,expected,confirmed:true}));await refresh();notify('Launch settings saved with a profile backup. Existing shortcuts use the saved settings.');}} onReset={async(expected)=>{remember(await invoke<Game>('reset_windows_launch_settings',{id:game.id,expected,confirmed:true}));await refresh();notify('Original launch settings restored. Previous settings were backed up.');}}/>
 

@@ -64,6 +64,13 @@ class WindowsShortcutTests(unittest.TestCase):
         self.assertEqual(saved['state'], 'game-exited')
         self.assertEqual(saved['exitCode'], 0)
         self.assertTrue((self.profile/'logs'/saved['runId']/'stderr.log').is_file())
+        history = json.loads((self.profile/'logs'/saved['runId']/'history.json').read_text())
+        self.assertEqual(history['id'], saved['runId'])
+        self.assertEqual(history['kind'], 'game')
+        self.assertEqual(history['state'], 'game-exited')
+        self.assertEqual(history['exitCode'], 0)
+        self.assertGreaterEqual(history['endedAt'], history['startedAt'])
+        self.assertTrue(history['runtime'])
 
     def test_saved_arguments_and_working_directory_reach_the_native_launcher_literally(self):
         working = self.home / 'Game Working Directory'

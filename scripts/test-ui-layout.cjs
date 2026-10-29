@@ -34,6 +34,7 @@ let browser;
    if(cmd==='analyze_diagnostics')return {games:reports,system:{os:'Zorin OS',kernel:'Linux 6.14',arch:'x86_64',gpuDevices:['NVIDIA GeForce RTX 3060'],vulkaninfoPath:'/usr/bin/vulkaninfo',icdManifests:['nvidia_icd.json'],notes:[]},warnings:[]};
    if(cmd==='recommend_proton')return {games:games.map(g=>({appId:g.appId,libraryPath:g.libraryPath,gameName:g.name,status:'try-version',suggestedTool:'Proton Experimental',configuredTool:'GE-Proton10-34',reason:'A different installed version may help with the recorded exception.',nextStep:'Back up your selection, then test the game.',confidence:'tentative',alternatives:['GE-Proton10-34'],evidence:['wine-exception']})),note:''};
    if(cmd==='list_windows_games')return windows;
+   if(cmd==='get_windows_launch_history')return {entries:[{id:'1-1700000000',kind:'game',runtime:'GE-Proton10-34',startedAt:1700000000000,endedAt:1700000065000,state:'process-failed',exitCode:7,message:'Game process ended.',summaries:['A Windows exception was recorded'],partialLogs:true},{id:'1-1600000000',kind:'installer',runtime:'Wine',startedAt:1600000000000,endedAt:1600000065000,state:'installer-exited',exitCode:0,message:'Setup process ended.',summaries:[],partialLogs:false}],warnings:[]};
    if(cmd==='monitor_game_logs')return [];
    if(cmd.includes('game_icon')||cmd==='get_windows_executable_icon')return null;
    if(cmd==='review_windows_installation')return {candidates:[{path:'/home/player/Games/A New Game/Binaries/Win64/game.exe',suggestedName:'A New Game'}],truncated:false};
@@ -83,6 +84,15 @@ let browser;
   results.push({width,name:'Installation review and launch settings',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
   if(width===1200)await page.screenshot({path:path.join(output,'windows-options.jpg'),fullPage:true,type:'jpeg',quality:80});
  }
+ await page.getByText('Launch history',{exact:true}).first().click();
+ await page.getByText('Game · Runtime exit 7',{exact:true}).waitFor();
+ for(const [width,height] of [[1280,800],[390,844]]){
+  await page.setViewportSize({width,height});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Launch history overflow: '+width);
+  const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width,name:'Launch history',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+  if(width===1280)await page.screenshot({path:path.join(output,'launch-history.jpg'),fullPage:true,type:'jpeg',quality:80});
+ }
  const touchContext=await browser.newContext({hasTouch:true,viewport:{width:1280,height:800}});
  const touch=await touchContext.newPage();touch.on('pageerror',e=>errors.push(e.message));
  await touch.addInitScript(fixture);await touch.goto(address);await touch.getByText('6',{exact:true}).waitFor();
@@ -101,7 +111,7 @@ let browser;
  }
  await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg']) {
+ for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();

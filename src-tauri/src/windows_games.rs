@@ -1,4 +1,5 @@
 //! User-approved Windows installers in dedicated prefixes. Never executes a shell.
+pub mod history;
 use crate::{diagnostics, scanner};
 use serde::{Deserialize, Serialize};
 use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{Read, Seek, SeekFrom, Write},
@@ -35,7 +36,7 @@ fn require_idle(r:&Record)->Result<(),String>{
     } Ok(())
 }
 fn persist_completion(dir:&Path, record:&Record)->Result<(),String>{
-    match save(dir,record){Ok(())=>Ok(()),Err(e)=>{
+    match history::finish(dir,record).and_then(|_|save(dir,record)){Ok(())=>Ok(()),Err(e)=>{
         UNSAVED.lock().map_err(|_|"Completion receipt lock unavailable")?.insert(record.id.clone(),record.clone());
         Err(e)
     }}
@@ -196,9 +197,10 @@ fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<G
     let stdout=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stdout.log")).map_err(|e|e.to_string())?;
     let stderr=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stderr.log")).map_err(|e|e.to_string())?;
     record.boot_id=boot_id();record.run_id=Some(run);record.exit_code=None;record.state=if install{"installer-running"}else{"game-running"}.into();
-    record.message=if install{"Complete the setup window, then select the installed game executable."}else{"Game started."}.into();save(&dir,&record)?;
+    record.message=if install{"Complete the setup window, then select the installed game executable."}else{"Game started."}.into();
+    history::begin(&logs,&record,&r,install)?;save(&dir,&record)?;
     let child=command_for_record(&r,&dir,&prefix,&exe,&logs,&record,install).spawn();
-    let mut child=match child{Ok(c)=>c,Err(e)=>{record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");save(&dir,&record)?;return Ok(view(&dir,record,false));}};
+    let mut child=match child{Ok(c)=>c,Err(e)=>{record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");persist_completion(&dir,&record)?;return Ok(view(&dir,record,false));}};
     let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);
     std::thread::spawn(move||{
@@ -216,7 +218,7 @@ pub fn list()->Result<Library,String>{list_in(root()?,discover_runtimes(&crate::
 fn list_in(root:PathBuf,available_runtimes:Vec<Runtime>)->Result<Library,String>{
     let mut jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;let mut games=vec![];let mut removed_games=vec![];let mut warnings=vec![];
     let mut pending=UNSAVED.lock().map_err(|_|"Completion receipt lock unavailable")?;
-    pending.retain(|id,record|{let dir=root.join(id);match save(&dir,record){Ok(())=>{jobs.remove(id);false},Err(e)=>{warnings.push(format!("Completion for {} could not be saved: {e}. Keep Proton Medic open; it will retry.",record.name));true}}});
+    pending.retain(|id,record|{let dir=root.join(id);match history::finish(&dir,record).and_then(|_|save(&dir,record)){Ok(())=>{jobs.remove(id);false},Err(e)=>{warnings.push(format!("Completion for {} could not be saved: {e}. Keep Proton Medic open; it will retry.",record.name));true}}});
     for item in fs::read_dir(&root).map_err(|e|e.to_string())?.flatten(){let id=item.file_name().to_string_lossy().into_owned();if !valid_id(&id){continue;}match load(&root,&id){Ok((dir,mut r))=>{
             if r.state.ends_with("running") && r.boot_id.is_none(){
                 let migrate=(||{let _lock=lock_profile(&dir)?;let(_,mut latest)=load(&root,&id)?;
@@ -482,11 +484,13 @@ mod tests{
         let(_,done)=load(&f.0,&id).unwrap();assert_eq!(done.exit_code,Some(7));assert_eq!(done.state,"process-failed");
         assert!(checked_exe(&dir,&done,&dir.join("compatdata/pfx/drive_c/Game/game.exe")).is_ok());
         let log=dir.join("logs").join(done.run_id.as_ref().unwrap()).join("stderr.log");assert!(fs::read_to_string(log).unwrap().contains("unhandled exception"));
+        let history=history::list_in(&dir,&done,false).unwrap();assert_eq!(history.entries[0].kind,"installer");assert_eq!(history.entries[0].exit_code,Some(7));assert!(!history.entries[0].summaries.is_empty());
     }
     #[test] fn missing_runtime_is_recorded_as_failure_without_claiming_installation(){
         let f=Fixture::new();let id=stamp().unwrap();let dir=f.0.join(&id);directory(&dir,true).unwrap();let exe=f.0.join("setup.exe");pe(&exe);
         let r=Runtime{id:"none".into(),name:"Missing".into(),kind:"wine".into(),binary:f.0.join("absent"),steam:None};
-        let mut rec=record(&id);rec.runtime_id="none".into();save(&dir,&rec).unwrap();let result=spawn(dir,rec,r,exe,true).unwrap();assert_eq!(result.state,"start-failed");assert!(result.game_exe.is_none());assert!(load(&f.0,&id).is_ok());
+        let mut rec=record(&id);rec.runtime_id="none".into();save(&dir,&rec).unwrap();let result=spawn(dir.clone(),rec,r,exe,true).unwrap();assert_eq!(result.state,"start-failed");assert!(result.game_exe.is_none());assert!(load(&f.0,&id).is_ok());
+        let (_,done)=load(&f.0,&id).unwrap();let history=history::list_in(&dir,&done,false).unwrap();assert_eq!(history.entries[0].state,"start-failed");assert_eq!(history.entries[0].exit_code,None);
     }
     #[test] fn unknown_persisted_runs_are_blocked_until_a_proven_reboot(){
         let mut r=record("123");r.state="game-running".into();assert!(require_idle(&r).is_err());
