@@ -1,6 +1,6 @@
 # Proton Medic v0.6.15
 
-- Larger touch targets for update controls, game management actions, detail tabs, and expandable sections on touch-enabled devices.
+- Consistent 44-pixel targets for update controls, game management actions, detail tabs, and expandable sections across touch and mouse input.
 - Tighter Home spacing on shorter desktop screens, including Steam Deck.
 - More visible keyboard focus around library search and consistent disabled styling for text areas.
 - Steam libraries show a loading message during the initial scan instead of an empty search result.
