@@ -230,6 +230,30 @@ pub fn select(app_id:String,library_path:String,confirmed:bool)->Result<AutoSele
     select_tracked(app_id, library_path, confirmed, None).map(|(result, _)| result)
 }
 
+fn allowed_tool_roots(config: &Path) -> Result<Vec<PathBuf>, String> {
+    let steam = config.parent().and_then(Path::parent).ok_or("Steam root unavailable")?;
+    let mut roots = vec![steam.join("compatibilitytools.d")];
+    roots.extend(scanner::libraries_from_vdf(steam, &mut vec![]).into_iter().map(|p| p.join("steamapps/common")));
+    Ok(roots.into_iter().filter_map(|p| fs::canonicalize(p).ok()).collect())
+}
+
+fn tool_allowed(tool: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| tool.starts_with(root))
+}
+
+pub fn manual_tools(app_id: &str, library_path: &str) -> Result<Vec<scanner::CompatibilityTool>, String> {
+    let scan = crate::inventory::steam();
+    if !scan.games.iter().any(|g| g.app_id == app_id && g.library_path == library_path) {
+        return Err("Game is no longer in this Steam library".into());
+    }
+    tools_for_library(&scan, library_path)
+}
+
+fn tools_for_library(scan: &scanner::ScanReport, library_path: &str) -> Result<Vec<scanner::CompatibilityTool>, String> {
+    let roots = allowed_tool_roots(&config_for_library(scan, library_path)?)?;
+    Ok(scan.compatibility_tools.iter().filter(|tool| fs::canonicalize(&tool.path).is_ok_and(|path| tool_allowed(&path, &roots))).cloned().collect())
+}
+
 pub fn select_manual(app_id:String,library_path:String,tool_path:String,confirmed:bool)->Result<AutoSelection,String>{
     if !confirmed{return Err("Approve changing this game's Proton version".into());}
     let _lock=CONFIG_LOCK.lock().map_err(|_|"Configuration lock unavailable")?;
@@ -238,11 +262,8 @@ pub fn select_manual(app_id:String,library_path:String,tool_path:String,confirme
     let game=scan.games.iter().find(|g|g.app_id==app_id&&g.library_path==library_path).ok_or("Game is no longer in this Steam library")?;
     let selected=scan.compatibility_tools.iter().find(|t|t.path==tool_path).ok_or("Selected Proton is no longer installed")?;
     let config=config_for_library(&scan,&library_path)?;
-    let steam=config.parent().and_then(Path::parent).ok_or("Steam root unavailable")?;
     let tool=fs::canonicalize(&tool_path).map_err(|e|e.to_string())?;
-    let mut allowed=vec![steam.join("compatibilitytools.d")];
-    allowed.extend(scanner::libraries_from_vdf(steam,&mut vec![]).into_iter().map(|p|p.join("steamapps/common")));
-    if !allowed.iter().filter_map(|p|fs::canonicalize(p).ok()).any(|p|tool.starts_with(p)){return Err("Choose a Proton installed for this game's Steam installation".into());}
+    if !tool_allowed(&tool, &allowed_tool_roots(&config)?) { return Err("Choose a Proton installed for this game's Steam installation".into()); }
     let id=internal_id(&selected.name,&tool)?;
     let (backup_path,changed)=replace_config(&config,&app_id,&id,true)?;
     crate::inventory::refresh();
@@ -353,6 +374,34 @@ pub(crate) fn select_tracked(app_id:String,library_path:String,confirmed:bool, e
         "0" { "name" "proton_experimental" } // user default
         "123" { "name" "proton_9" "config" "" "priority" "250" }
     } } } } }"#;
+    #[test] fn manual_choices_follow_library_owner_and_resolve_links() {
+        let dir = std::env::temp_dir().join(format!("pm-tool-choices-{}-{}", std::process::id(), unix_stamp().unwrap()));
+        let native = dir.join("native"); let flatpak = dir.join("flatpak"); let external = dir.join("external");
+        for root in [&native, &flatpak] {
+            fs::create_dir_all(root.join("config")).unwrap();
+            fs::create_dir_all(root.join("steamapps")).unwrap();
+            fs::create_dir_all(root.join("compatibilitytools.d/GE")).unwrap();
+            fs::write(root.join("config/config.vdf"), CONFIG).unwrap();
+        }
+        fs::create_dir_all(external.join("steamapps/common/Proton")).unwrap();
+        fs::write(native.join("steamapps/libraryfolders.vdf"), format!(r#""libraryfolders" {{ "1" {{ "path" "{}" }} }}"#, external.display())).unwrap();
+        let escaped = native.join("compatibilitytools.d/other-installation");
+        std::os::unix::fs::symlink(flatpak.join("compatibilitytools.d/GE"), &escaped).unwrap();
+        let paths = [native.join("compatibilitytools.d/GE"), flatpak.join("compatibilitytools.d/GE"), external.join("steamapps/common/Proton"), escaped];
+        let scan = scanner::ScanReport {
+            installations: vec![scanner::SteamInstallation { kind: "Native".into(), path: native.to_string_lossy().into() }, scanner::SteamInstallation { kind: "Flatpak".into(), path: flatpak.to_string_lossy().into() }],
+            libraries: vec![], games: vec![], warnings: vec![],
+            compatibility_tools: paths.iter().map(|p| scanner::CompatibilityTool { name: "Proton".into(), source: "Custom".into(), path: p.to_string_lossy().into() }).collect(),
+        };
+        let native_choices = tools_for_library(&scan, external.to_str().unwrap()).unwrap();
+        assert_eq!(native_choices.iter().map(|t| t.path.as_str()).collect::<Vec<_>>(), vec![paths[0].to_str().unwrap(), paths[2].to_str().unwrap()]);
+        let flatpak_choices = tools_for_library(&scan, flatpak.to_str().unwrap()).unwrap();
+        assert!(flatpak_choices.iter().all(|t| fs::canonicalize(&t.path).unwrap() == paths[1]));
+        assert!(!flatpak_choices.is_empty());
+        fs::write(flatpak.join("steamapps/libraryfolders.vdf"), format!(r#""libraryfolders" {{ "1" {{ "path" "{}" }} }}"#, external.display())).unwrap();
+        assert!(tools_for_library(&scan, external.to_str().unwrap()).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
     #[test] fn edits_only_game_name_value_and_preserves_comments() {
         let (next,changed)=replacement_text(CONFIG,"123","proton_10").unwrap();
         assert!(changed);assert!(next.contains("\"123\" { \"name\" \"proton_10\""));

@@ -226,7 +226,7 @@ export default function App() {
           </div>
             </> },
             { id: 'proton', label: 'Proton', content: <>
-          <GameProtonPicker key={gameKey(selectedGame)} game={selectedGame} tools={scan?.compatibilityTools ?? []} onChanged={() => void scanGames()} onManage={() => setPage('protons')}/>
+          <GameProtonPicker key={gameKey(selectedGame)} game={selectedGame} onChanged={() => void scanGames()} onManage={() => setPage('protons')}/>
           <ProtonAdvisor advice={advice?.games.find(a => a.appId === selectedGame.appId && a.libraryPath === selectedGame.libraryPath)} loading={advising}
             applying={autoBusy} message={autoMessage} onApply={() => void selectAutomatically(selectedGame.appId, selectedGame.libraryPath)}/>
             </> },

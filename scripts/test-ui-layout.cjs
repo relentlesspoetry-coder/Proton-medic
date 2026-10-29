@@ -34,6 +34,7 @@ let browser;
   window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
    if(cmd==='prepare_support_report')return {token:1,content:JSON.stringify({appVersion:'0.6.19',pathsRedacted:args.options.redactPaths,system:{os:'Zorin OS',architecture:'x86_64'},steam:{games:[{name:'Black Myth: Wukong',installPath:'[redacted path]',status:'review'}]},windows:{games:[{name:'Black Myth: Wukong',runtime:'GE-Proton10-34',exitCode:7}]}},null,2)+'\n'};
    if(cmd==='save_support_report')return '/home/player/Documents/proton-medic-report.json';
+   if(cmd==='list_game_protons')return scan.compatibilityTools;
    if(cmd==='list_proton_versions')return {installations:scan.installations,tools:scan.compatibilityTools,status:window.__PM_PROTON_STATUS??null,umuAvailable:false};
    if(cmd==='fetch_proton_releases')return [{tag:'GE-Proton11-11',name:'GE-Proton11-11-x86_64.tar.gz',size:564789552},{tag:'GE-Proton11-10',name:'GE-Proton11-10-x86_64.tar.gz',size:566144788}];
    if(cmd==='install_proton_version'){window.__PM_PROTON_STATUS={phase:'downloading',tag:args.tag,downloaded:200000000,total:564789552,message:'Downloading from the official GE-Proton release.'};return;}
@@ -84,6 +85,13 @@ let browser;
   const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
   results.push({width,name:'Proton manager download',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
   if(width===1280)await page.screenshot({path:path.join(output,'proton-manager.jpg'),fullPage:true,type:'jpeg',quality:80});
+ }
+ await page.getByText('Help',{exact:true}).click();
+ for(const [width,height] of [[1280,800],[390,844]]){
+  await page.setViewportSize({width,height});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Proton help overflow: '+width);
+  const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width,name:'Proton help expanded',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
  }
  await page.getByRole('button',{name:'Cancel download',exact:true}).click();
  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Settings',exact:true}).click();
