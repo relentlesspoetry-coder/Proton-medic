@@ -120,12 +120,12 @@ mod tests{
     #[test] fn malformed_shortcut_cannot_start_a_game(){assert_eq!(handle_cli(vec!["app".into()]),None);}
     #[test] fn desktop_entry_round_trips_arguments_through_gio(){
         let root=std::env::temp_dir().join(format!("pm-gio-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));fs::create_dir(&root).unwrap();
-        let binary=root.join("Fake Launcher");let receipt=root.join("arguments.json");
-        fs::write(&binary,format!("#!/usr/bin/python3\nimport json,sys\nfrom pathlib import Path\nPath({:?}).write_text(json.dumps(sys.argv[1:]))\n",receipt.to_str().unwrap())).unwrap();
+        let binary=root.join("Fake Launcher.AppImage");let receipt=root.join("arguments.json");
+        fs::write(&binary,format!("#!/usr/bin/python3\nimport json,sys,os\nfrom pathlib import Path\nassert os.environ.get('APPIMAGE_EXTRACT_AND_RUN') == '1'\nPath({:?}).write_text(json.dumps(sys.argv[1:]))\n",receipt.to_str().unwrap())).unwrap();
         use std::os::unix::fs::PermissionsExt;fs::set_permissions(&binary,fs::Permissions::from_mode(0o700)).unwrap();
         let profile=root.join("My Games %f $HOME `literal` \\");
         let desktop=root.join("fixture.desktop");fs::write(&desktop,entry("Fixture",&binary,&profile,"123-456",Path::new("/icon.png")).unwrap()).unwrap();
-        let output=Command::new("gio").arg("launch").arg(&desktop).output().expect("gio is required for desktop entry integration tests");
+        let output=Command::new("gio").env_remove("APPIMAGE_EXTRACT_AND_RUN").arg("launch").arg(&desktop).output().expect("gio is required for desktop entry integration tests");
         assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
         let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
         while !receipt.exists(){assert!(std::time::Instant::now()<deadline);std::thread::sleep(std::time::Duration::from_millis(10));}

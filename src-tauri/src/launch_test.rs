@@ -49,16 +49,6 @@ fn fingerprint(path: &Path) -> Option<LogFingerprint> {
     Some(LogFingerprint { path: path.to_path_buf(), modified: meta.modified().ok()?, len: meta.len() })
 }
 
-#[cfg(test)]
-fn fresh_log(home: &Path, app_id: &str, before: &[LogFingerprint], start: SystemTime)
-    -> Option<LogFingerprint> {
-    // Only a log that actually changed during THIS test counts as new evidence.
-    // A different Steam installation's stale/future-dated log must not mask it.
-    log_locations(home, app_id).into_iter().filter_map(|p| fingerprint(&p))
-        .filter(|log| changed_log(before, log, start))
-        .max_by_key(|log| log.modified)
-}
-
 fn changed_log(before: &[LogFingerprint], after: &LogFingerprint, start: SystemTime) -> bool {
     // A stale log must never count as evidence from this test. File timestamp
     // granularity varies by filesystem; a changed length also counts.

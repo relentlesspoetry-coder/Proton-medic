@@ -226,6 +226,9 @@ fn restore_for_game(game: &Game, kind: Kind, backup_name: &str) -> Result<Repair
     if !no_symlink(&vault)? { return Err("Backup folder missing".into()); }
     let backup_path = vault.join(&backup_name);
     if !no_symlink(&backup_path)? { return Err("Backup missing or not a regular directory".into()); }
+    let _backup_prefix = if kind == Kind::ProtonPrefix {
+        Some(crate::coordination::repair_prefix(&backup_path.join("pfx"))?)
+    } else { None };
     let mut displaced = None;
     if no_symlink(&source)? {
         // Preserve any regenerated cache/prefix, rather than replacing or deleting it.
