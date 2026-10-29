@@ -173,9 +173,11 @@ input:disabled, select:disabled { opacity: .55; }
 .pm-home-games>.pm-section-heading { margin-bottom: 12px; }
 .pm-pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 14px; padding-top: 20px; }
 .pm-pagination span { color: var(--pm-muted); font-size: 11px; }
+.pm-detail-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.pm-detail-toolbar .pm-back { margin: 0; }
 .pm-selected-head { display: flex; align-items: center; gap: 22px; margin: 0 0 30px; min-width: 0; }
 .pm-selected-head>div:last-child { min-width: 0; }
-.pm-selected-head h2 { font-size: 28px; letter-spacing: -1px; overflow-wrap: anywhere; }
+.pm-selected-head h1 { font-size: 28px; letter-spacing: -1px; overflow-wrap: anywhere; }
 .pm-game-subtitle { color: var(--pm-faint); font-size: 11px; }
 .pm-selected-head p { font-size: 12px; color: var(--pm-muted); margin: 12px 0 0; max-width: 620px; }
 .pm-detail-status { margin-top: 12px; }
@@ -350,7 +352,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
   .pm-metric-icon { display: none; }
   .pm-section { padding: 22px; }
   .pm-form-grid, .pm-repair-options { grid-template-columns: minmax(0,1fr); }
-  .pm-selected-head h2 { font-size: 24px; }
+  .pm-selected-head h1 { font-size: 24px; }
 }
 @media (max-width: 760px) {
   .pm-sidebar { flex-basis: 72px; padding-inline: 10px; }
@@ -394,7 +396,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
   .pm-game-image { grid-row: span 2; }
   .pm-selected-head { align-items: flex-start; gap: 15px; }
   .pm-game-image.big { width: 72px; height: 72px; }
-  .pm-selected-head h2 { font-size: 21px; }
+  .pm-selected-head h1 { font-size: 21px; }
   .pm-game-toolbar select { flex: 1; }
   .pm-game-toolbar>span { width: 100%; }
   .pm-windows-game { padding: 16px; }
