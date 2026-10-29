@@ -4,10 +4,12 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { Download, Monitor, Play, Plus, RefreshCw, Search, Pencil, Trash2 } from 'lucide-react';
 import type { Finding } from './types';
 import { PagedList } from './PagedList';
+import { InstallationAssistant } from './InstallationAssistant';
+import { WindowsLaunchSettings } from './WindowsLaunchSettings';
 import { GameIcon } from './GameIcon';
 interface LogReport { findings: Finding[]; logs: { name: string; status: string; truncated: boolean }[] }
-interface Runtime { id: string; name: string; kind: string }
-interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null }
+export interface Runtime { id: string; name: string; kind: string }
+export interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null; launchArguments?: string[]; workingDirectory?: string | null }
 interface Library { runtimes: Runtime[]; games: Game[]; removedGames?: Game[]; warnings: string[] }
 interface ExecutableSearch { executables: string[]; truncated: boolean }
 const empty: Library = { runtimes: [], games: [], warnings: [] };
@@ -68,7 +70,7 @@ export function WindowsGames() {
       : await invoke<Game>('register_windows_game', { name, path: installer, prefix, runtimeId: runtime, confirmed: true });
     if (game?.id) remember(game);
     setApproved(false); await refresh();
-    setNotice(mode === 'install' ? 'Installer started. Complete its setup window, then choose the game executable below.' : 'Installed game added using its existing prefix.');
+    setNotice(mode === 'install' ? 'Installer started. Complete its setup window, then review the suggested game executable in its card.' : 'Installed game added using its existing prefix.');
   });
   const switchMode = (next: 'install' | 'existing') => { setMode(next); setInstaller(''); setName(''); setPrefix(''); setApproved(false); };
 
@@ -80,7 +82,7 @@ export function WindowsGames() {
     <section className="pm-section" aria-label="Managed Windows games">
       <div className="pm-section-heading"><div><h2>Your Windows games</h2><p>Choose a game to launch, rename, or manage.</p></div></div>
       {!library.games.length && <p>{loaded ? 'No Windows games have been added yet.' : 'Loading Windows games…'}</p>}
-      <PagedList className="pm-windows-list" items={library.games} render={game => <WindowsGameCard key={game.id} game={game} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
+      <PagedList className="pm-windows-list" items={library.games} render={game => <WindowsGameCard key={game.id} game={game} runtimes={library.runtimes} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
       {!!library.removedGames?.length && <details className="pm-update-details"><summary>Removed games ({library.removedGames.length})</summary><p>Game files and prefixes are kept. Restore a game to show it in this list again.</p><div className="pm-removed-games">{library.removedGames.map(game => <div className="pm-removed-game" key={game.id}><span>{game.name}</span><button disabled={busy || isRunning(game)} className="pm-button pm-button-secondary" onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: false, confirmed: true }); await refresh(); })}>Restore {game.name}</button></div>)}</div></details>}
 
     </section>
@@ -109,7 +111,7 @@ export function WindowsGames() {
   </>;
 }
 
-function WindowsGameCard({ game, busy, run, remember, refresh, notify, forget }: { game: Game; busy: boolean; run: (task: () => Promise<void>) => Promise<void>; remember: (game: Game) => void; refresh: () => Promise<void>; notify: (message: string) => void; forget: (id: string) => void }) {
+function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify, forget }: { game: Game; runtimes: Runtime[]; busy: boolean; run: (task: () => Promise<void>) => Promise<void>; remember: (game: Game) => void; refresh: () => Promise<void>; notify: (message: string) => void; forget: (id: string) => void }) {
   const [search, setSearch] = useState<ExecutableSearch | null>(null);
   const [candidate, setCandidate] = useState('');
   const [name, setName] = useState(game.name);
@@ -131,6 +133,11 @@ function WindowsGameCard({ game, busy, run, remember, refresh, notify, forget }:
     </form>}
     {removing && <div className="pm-remove-confirm" role="group" aria-label={`Confirm removal of ${game.name}`}><p>Remove <strong>{game.name}</strong> from this list? Game files, prefixes, and desktop shortcuts are kept. You can restore it from Removed games.</p><div className="pm-button-row"><button className="pm-button pm-button-secondary" disabled={busy || running} onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: true, confirmed: true }); forget(game.id); await refresh(); })}>Confirm removal</button><button className="pm-button pm-button-secondary" disabled={busy} onClick={() => setRemoving(false)}>Cancel</button></div></div>}
     <p>{game.message}</p>
+    {game.state==='installer-exited'&&!game.gameExe&&<InstallationAssistant game={game} busy={busy} run={run} onConfirm={async(name,path,shortcut)=>{
+      remember(await invoke<Game>('confirm_windows_installation',{id:game.id,name,path,confirmed:true}));await refresh();notify('Game saved. Launch it when you are ready to test.');
+      if(shortcut){try{await invoke('create_windows_game_shortcut',{id:game.id,confirmed:true});notify('Game saved. Desktop and applications-menu shortcuts created.');}catch(error){throw new Error('Game saved, but shortcut creation failed: '+String(error)+'. Use Create desktop shortcut to retry.');}}
+    }/>}
+
     <div className="pm-button-row">
       <button disabled={busy || running} className="pm-button pm-button-secondary" onClick={() => void run(async () => {
         const file = await open({ multiple: false, directory: false, defaultPath: game.windowsDrive, filters: [{ name: 'Installed Windows game', extensions: ['exe'] }] });
@@ -144,8 +151,10 @@ function WindowsGameCard({ game, busy, run, remember, refresh, notify, forget }:
       {search.truncated && <p>The search reached its limit. You can choose a file manually.</p>}
     </div>}
     <details className="pm-update-details"><summary>Game settings and logs</summary>
+      <WindowsLaunchSettings game={game} runtimes={runtimes} busy={busy} run={run} onSave={async(value,expected)=>{remember(await invoke<Game>('save_windows_launch_settings',{id:game.id,value,expected,confirmed:true}));await refresh();notify('Launch settings saved with a profile backup. Existing shortcuts use the saved settings.');}} onReset={async(expected)=>{remember(await invoke<Game>('reset_windows_launch_settings',{id:game.id,expected,confirmed:true}));await refresh();notify('Original launch settings restored. Previous settings were backed up.');}}/>
 
-      <dl className="pm-windows-paths"><dt>Game executable</dt><dd>{game.gameExe ?? 'Not selected'}</dd><dt>Windows prefix</dt><dd>{game.prefixDirectory ?? game.windowsDrive.replace(/\/drive_c$/, '')}</dd><dt>Runtime</dt><dd>{game.runtimeId}</dd><dt>Last exit code</dt><dd>{game.exitCode ?? 'Not available'}</dd><dt>Logs</dt><dd>{game.logDirectory ?? 'No run yet'}</dd></dl>
+
+      <dl className="pm-windows-paths"><dt>Game executable</dt><dd>{game.gameExe ?? 'Not selected'}</dd><dt>Windows prefix</dt><dd>{game.prefixDirectory ?? game.windowsDrive.replace(/\/drive_c$/, '')}</dd><dt>Last exit code</dt><dd>{game.exitCode ?? 'Not available'}</dd><dt>Logs</dt><dd>{game.logDirectory ?? 'No run yet'}</dd></dl>
       <button disabled={busy || !game.logDirectory} className="pm-button pm-button-secondary" onClick={() => void run(async () => setLogs(await invoke<LogReport>('analyze_windows_game', { id: game.id })))}>Read runtime logs</button>
       {logs && <div>{logs.logs.map(log => <p key={log.name}>{log.name}: {log.status}{log.truncated ? ' · partial log (tail retained)' : ''}</p>)}{logs.findings.length ? logs.findings.map(f => <p key={f.code}><strong>{f.title}</strong> — {f.recommendation}</p>) : <p>No recognized errors in the captured logs.</p>}</div>}
     </details>

@@ -43,3 +43,8 @@ it('defers artwork requests until the icon approaches the viewport',async()=>{
   expect(invoke).toHaveBeenCalledTimes(1);expect(view.container.querySelector('img')).toBeTruthy();expect(disconnect).toHaveBeenCalled();
  } finally { vi.unstubAllGlobals(); }
 });
+
+it('previews a chosen executable without changing the saved game',async()=>{
+ invoke.mockResolvedValue(uri);const view=render(<GameIcon source={{kind:'candidate',id:'123',executable:'/chosen/game.exe'}}/>);await act(async()=>{});
+ expect(invoke).toHaveBeenCalledWith('get_windows_executable_icon',{id:'123',path:'/chosen/game.exe'});expect(view.container.querySelector('img')).toBeTruthy();
+});

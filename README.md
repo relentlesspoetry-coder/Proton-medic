@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.12 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.13 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -15,6 +15,8 @@ Proton Medic helps Linux players diagnose game problems, manage installed Proton
 - Configure per-game Proton logging and monitor logs for changes.
 - Apply supported configuration fixes with backups and selective rollback.
 - Run trusted Windows `.exe` installers using an installed Wine or Proton runtime.
+- Review suggested executables after setup, preview the embedded icon, and confirm the game name and optional shortcuts.
+- Save per-game runtime, literal launch arguments, and working directory settings with backups and reset support.
 - Register installed Windows games using their existing prefix, including game files on other drives.
 - Create desktop and applications-menu shortcuts that reuse a game’s saved environment and extracted icon.
 - Rename Windows game profiles, remove them from the list, and restore them without deleting game files.
@@ -33,6 +35,10 @@ Download the amd64 DEB from [Releases](https://github.com/relentlesspoetry-coder
 ## Windows game launchers
 
 Open **Windows Games**, select the installed game’s `.exe` in its card, then choose **Create desktop shortcut**. Shortcuts launch through Proton Medic’s native launcher using the saved runtime, prefix, and working directory. The main window does not need to be open. GNOME may ask you to **Allow Launching** on first use.
+
+When setup closes successfully, the game card suggests likely executables. Choose the correct file, review its name and icon, approve saving, and optionally request desktop shortcuts. Suggestions never launch a game automatically.
+
+Expand **Game settings and logs → Edit launch settings** to select a runtime, enter one launch argument per line, or choose a working directory. Spaces inside each argument are preserved. Changes keep the same prefix and are backed up. **Reset launch settings** restores the original runtime, clears arguments, and uses the executable’s folder; the current settings are backed up first. Existing shortcuts automatically use saved settings.
 
 Use **Add installed game** for an installation missing from the list. Select its executable and the existing prefix containing `drive_c` and `system.reg`; use the runtime that previously ran it. This registers the game without reinstalling or copying it. Games installed through Proton Medic may initially appear under their installer’s name. Use **Rename** on the game card to change its display name. **Remove from list** hides the profile while preserving its game files, prefix, and shortcuts. Expand **Removed games** to restore it.
 
@@ -68,3 +74,5 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.10 changes](RELEASE-v0.6.10.md)
 - [v0.6.11 changes](RELEASE-v0.6.11.md)
 - [v0.6.12 changes](RELEASE-v0.6.12.md)
+
+- [v0.6.13 changes](RELEASE-v0.6.13.md)

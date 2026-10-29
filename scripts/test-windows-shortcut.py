@@ -64,6 +64,27 @@ class WindowsShortcutTests(unittest.TestCase):
         self.assertEqual(saved['exitCode'], 0)
         self.assertTrue((self.profile/'logs'/saved['runId']/'stderr.log').is_file())
 
+    def test_saved_arguments_and_working_directory_reach_the_native_launcher_literally(self):
+        working = self.home / 'Game Working Directory'
+        working.mkdir()
+        marker = self.home / 'must-not-exist'
+        arguments = ['-dx12', 'two words', f'$(touch {marker})', f'; touch {marker}']
+        self.record.update(launchArguments=arguments, workingDirectory=str(working))
+        self.save()
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.receipt.read_text()), dict(args=[str(self.exe), *arguments], prefix=str(self.prefix), cwd=str(working)))
+        self.assertFalse(marker.exists())
+
+    def test_missing_working_directory_preserves_the_profile_without_starting_runtime(self):
+        self.record['workingDirectory'] = str(self.home / 'missing-directory')
+        self.save()
+        before = (self.profile / 'profile.json').read_bytes()
+        result = self.launch()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual((self.profile / 'profile.json').read_bytes(), before)
+
     def test_native_version_probe_needs_no_desktop_session(self):
         result = subprocess.run([str(BINARY), '--proton-medic-version'], env=self.env,
                                 text=True, capture_output=True, timeout=5)

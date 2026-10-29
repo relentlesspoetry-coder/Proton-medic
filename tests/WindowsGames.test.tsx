@@ -87,3 +87,23 @@ it('blocks rename and removal while the game is running',async()=>{
  invoke.mockResolvedValue({runtimes:[runtime],games:[{...game,state:'game-running'}],warnings:[]});await mount();
  expect((screen.getByRole('button',{name:'Rename Fixture'}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByRole('button',{name:'Remove Fixture from list'}) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it('saves launch settings through the native command without launching a game',async()=>{
+ let current={...game,gameExe:'/game.exe',launchArguments:[] as string[],workingDirectory:null as string|null};
+ invoke.mockImplementation(async(command:string,args:any)=>{if(command==='save_windows_launch_settings'){current={...current,runtimeId:args.value.runtimeId,launchArguments:args.value.arguments,workingDirectory:args.value.workingDirectory};return current;}return {runtimes:[runtime],games:[current],warnings:[]};});
+ await mount();fireEvent.click(screen.getByText('Game settings and logs'));await click('Edit launch settings');
+ fireEvent.change(screen.getByRole('textbox',{name:'Launch arguments for Fixture'}),{target:{value:'-dx12\ntwo words'}});fireEvent.change(screen.getByRole('textbox',{name:'Working directory for Fixture'}),{target:{value:'/Games/With Spaces'}});
+ await click('Save launch settings');expect(invoke).toHaveBeenCalledWith('save_windows_launch_settings',{id:'123',value:{runtimeId:runtime.id,arguments:['-dx12','two words'],workingDirectory:'/Games/With Spaces'},expected:{runtimeId:runtime.id,arguments:[],workingDirectory:null},confirmed:true});
+ expect(invoke.mock.calls.some(c=>c[0]==='launch_windows_game')).toBe(false);expect(screen.getByText(/Launch settings saved with a profile backup/)).toBeTruthy();
+});
+it('keeps a confirmed game when optional shortcut creation fails',async()=>{
+ let current={...game};invoke.mockImplementation(async(command:string,args:any)=>{
+  if(command==='review_windows_installation')return {candidates:[{path:'/Games/Wukong/b1.exe',suggestedName:'Wukong'}],truncated:false};
+  if(command==='confirm_windows_installation'){current={...current,name:args.name,gameExe:args.path,state:'ready-to-test'};return current;}
+  if(command==='create_windows_game_shortcut')throw new Error('Desktop unavailable');
+  return {runtimes:[runtime],games:[current],warnings:[]};
+ });
+ await mount();fireEvent.change(screen.getByRole('combobox',{name:'Installed executable for Fixture'}),{target:{value:'/Games/Wukong/b1.exe'}});fireEvent.change(screen.getByRole('textbox',{name:'Installed game name for Fixture'}),{target:{value:'Wukong'}});
+ fireEvent.click(screen.getByLabelText('I trust the selected executable and approve saving this game.'));fireEvent.click(screen.getByLabelText('Create desktop and applications-menu shortcuts'));await click('Confirm game');
+ expect(invoke).toHaveBeenCalledWith('confirm_windows_installation',{id:'123',name:'Wukong',path:'/Games/Wukong/b1.exe',confirmed:true});expect(screen.getByRole('heading',{name:'Wukong'})).toBeTruthy();expect(screen.getByText(/Game saved, but shortcut creation failed/)).toBeTruthy();expect(invoke.mock.calls.some(c=>c[0]==='launch_windows_game')).toBe(false);
+});
