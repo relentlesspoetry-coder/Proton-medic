@@ -440,8 +440,13 @@ mod tests {
             let flatpak=game.library_path.contains(".var/app");
             assert_eq!(game.configured_tool.as_deref(),Some(if flatpak {"flatpak-proton"} else {"native-proton"}));
             let paths=crate::diagnostics::owned_log_candidates(&home.0,"123",&game.library_path,&scan);
-            assert!(!paths.is_empty());
-            assert!(paths.iter().all(|p|p.starts_with(home.0.join(".var/app"))==flatpak));
+            assert_eq!(paths.is_empty(),!flatpak);
+            assert!(paths.iter().all(|p|p.starts_with(home.0.join(".var/app"))));
+            let mut single=scan.clone();
+            single.installations.retain(|i| (i.kind=="Flatpak")==flatpak);
+            let owned=crate::diagnostics::owned_log_candidates(&home.0,"123",&game.library_path,&single);
+            assert!(owned.contains(&home.0.join("steam-123.log")));
+            if !flatpak { assert_eq!(owned.len(),1); }
         }
         let mut ambiguous=scan.clone();
         ambiguous.libraries[0].install_kind="Ambiguous".into();

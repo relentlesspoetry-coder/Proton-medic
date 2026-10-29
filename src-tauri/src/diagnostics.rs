@@ -463,10 +463,21 @@ pub(crate) fn owned_log_candidates(home: &Path, app_id: &str, library: &str, sca
     let Some(owner)=scan.libraries.iter().find(|l|l.path==library) else { return vec![]; };
     let kind=owner.install_kind.as_str();
     if !matches!(kind,"Native"|"Flatpak") || scan.installations.iter().filter(|i|i.kind==kind).count()>1 { return vec![]; }
+    let mixed=scan.installations.iter().any(|i|i.kind!=kind);
+    // A home-directory log alone does not identify its writer when both clients exist.
+    if kind=="Native" && mixed { return vec![]; }
     let flatpak=home.join(".var/app/com.valvesoftware.Steam");
-    log_candidates(home,app_id).into_iter().filter(|p|p.starts_with(&flatpak)==(kind=="Flatpak")).collect()
+    log_candidates(home,app_id).into_iter().filter(|p| {
+        if kind=="Flatpak" { !mixed || p.starts_with(&flatpak) } else { !p.starts_with(&flatpak) }
+    }).collect()
 }
 
 pub(crate) fn analyze_owned_game(home: &Path, app_id: &str, library: &str, scan: &ScanReport) -> GameDiagnostics {
-    analyze_candidates(owned_log_candidates(home,app_id,library,scan),app_id,library)
+    let candidates=owned_log_candidates(home,app_id,library,scan);
+    if candidates.is_empty() {
+        let mut result=empty_game(app_id,library);
+        result.notes.push("Log ownership is ambiguous for this Steam installation. Shared logs are excluded from automatic repairs.".into());
+        return result;
+    }
+    analyze_candidates(candidates,app_id,library)
 }
