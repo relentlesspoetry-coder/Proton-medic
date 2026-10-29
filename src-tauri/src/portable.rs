@@ -33,7 +33,11 @@ pub fn host_environment(command: &mut Command) {
         "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR", "GST_PLUGIN_PATH",
         "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SCANNER", "WEBKIT_EXEC_PATH",
         "WEBKIT_INJECTED_BUNDLE_PATH", "FONTCONFIG_PATH", "FONTCONFIG_FILE"] {
-        if let Some(value) = std::env::var_os(key) {
+        let value = match command.get_envs().find(|(name, _)| *name == key) {
+            Some((_, value)) => value.map(OsStr::to_owned),
+            None => std::env::var_os(key),
+        };
+        if let Some(value) = value {
             match clean_value(&value, &appdir) {
                 Some(value) => { command.env(key, value); }
                 None => { command.env_remove(key); }

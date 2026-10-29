@@ -41,7 +41,13 @@
     "linux": {
       "deb": {
         "depends": [
-          "libc6 (>= 2.39)"
+          "libc6 (>= 2.39)",
+          "libgtk-3-0",
+          "libwebkit2gtk-4.1-0",
+          "libglib2.0-bin",
+          "fontconfig",
+          "ca-certificates",
+          "xdg-utils"
         ]
       }
     },

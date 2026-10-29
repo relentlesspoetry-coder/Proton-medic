@@ -8,6 +8,8 @@
 
 ## Fixed
 
+- DEB packages explicitly request GTK, WebKitGTK, fontconfig, certificate roots, and desktop integration utilities from the package manager.
+
 - Game shortcuts use the permanent AppImage path instead of a temporary mounted executable.
 - Automatic update activation opens the updated AppImage from its permanent location.
 - Game launches and host utilities do not inherit the AppImage's private library and plugin paths.
