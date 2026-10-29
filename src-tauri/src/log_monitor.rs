@@ -27,8 +27,8 @@ impl Entry {
     }
 }
 static ENTRIES: LazyLock<Mutex<HashMap<(String,String), Entry>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-fn stamp(home: &std::path::Path, app: &str) -> Stamp {
-    diagnostics::log_candidates(home, app).into_iter().filter_map(|path| {
+fn stamp(home: &std::path::Path, app: &str, library: &str, scan: &crate::scanner::ScanReport) -> Stamp {
+    diagnostics::owned_log_candidates(home, app, library, scan).into_iter().filter_map(|path| {
         let meta = std::fs::symlink_metadata(&path).ok()?;
         if !meta.is_file() || meta.file_type().is_symlink() { return None; }
         Some((path, meta.len(), meta.modified().ok()?))
@@ -44,7 +44,7 @@ pub fn poll(enabled: bool) -> Result<Vec<Update>, String> {
     let mut applied_this_poll = false;
     for game in &scan.games {
         let key = (game.app_id.clone(), game.library_path.clone());
-        let current = stamp(&home, &game.app_id);
+        let current = stamp(&home, &game.app_id, &game.library_path, &scan);
         let new = !entries.contains_key(&key);
         let entry = entries.entry(key).or_insert_with(|| Entry {
             stamp: current.clone(), changed: false, stable: false, attempted: false, eligible: false, reason: String::new(), tool: None,

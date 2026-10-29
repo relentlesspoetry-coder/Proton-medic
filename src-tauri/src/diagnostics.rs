@@ -228,8 +228,11 @@ pub(crate) fn analyze_exact_log(path: &Path, app_id: &str, library_path: &str) -
     result
 }
 
+#[cfg(test)]
 pub(crate) fn analyze_game(home: &Path, app_id: &str, library_path: &str) -> GameDiagnostics {
-    let candidates = log_candidates(home, app_id);
+    analyze_candidates(log_candidates(home, app_id), app_id, library_path)
+}
+fn analyze_candidates(candidates: Vec<PathBuf>, app_id: &str, library_path: &str) -> GameDiagnostics {
     let mut existing: Vec<(SystemTime, PathBuf)> = candidates.into_iter().filter_map(|p| {
         let meta = fs::symlink_metadata(&p).ok()?;
         if !meta.is_file() || meta.file_type().is_symlink() { return None; }
@@ -303,7 +306,7 @@ pub fn diagnose(report: &ScanReport) -> DiagnosticsReport {
     };
     let mut results = Vec::new();
     for game in &report.games {
-        results.push(analyze_game(&home, &game.app_id, &game.library_path));
+        results.push(analyze_candidates(owned_log_candidates(&home, &game.app_id, &game.library_path, report), &game.app_id, &game.library_path));
     }
     DiagnosticsReport { games: results, system: system_info(), warnings: vec![] }
 }
@@ -452,4 +455,14 @@ mod tests {
         assert!(start.elapsed()<Duration::from_secs(8));
     }
 
+}
+
+// Standard Proton log locations are shared by games within one Steam installation.
+// Unknown/shared libraries or multiple installations of one kind cannot establish ownership.
+pub(crate) fn owned_log_candidates(home: &Path, app_id: &str, library: &str, scan: &ScanReport) -> Vec<PathBuf> {
+    let Some(owner)=scan.libraries.iter().find(|l|l.path==library) else { return vec![]; };
+    let kind=owner.install_kind.as_str();
+    if !matches!(kind,"Native"|"Flatpak") || scan.installations.iter().filter(|i|i.kind==kind).count()>1 { return vec![]; }
+    let flatpak=home.join(".var/app/com.valvesoftware.Steam");
+    log_candidates(home,app_id).into_iter().filter(|p|p.starts_with(&flatpak)==(kind=="Flatpak")).collect()
 }

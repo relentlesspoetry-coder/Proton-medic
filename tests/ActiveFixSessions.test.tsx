@@ -1,0 +1,40 @@
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { ActiveFixSessions } from '../src/ActiveFixSessions';
+import { FixAndTest } from '../src/FixAndTest';
+import type { Game } from '../src/types';
+const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke }));
+const game: Game = { appId: '123', name: 'Fixture', libraryPath: '/disconnected', installPath: '', installPathExists: false, manifestPath: '', prefixPath: '', prefixExists: false, buildId: null };
+const active = { sessionId: 'saved', appId: '123', libraryPath: '/disconnected', attempted: true, selection: { toolName: 'Proton', backupPath: '/backup' } };
+beforeEach(() => { invoke.mockReset(); sessionStorage.clear(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+it('recovers a backend session after remount when browser storage is unavailable', async () => {
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Unavailable'); });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Full'); });
+  invoke.mockImplementation((cmd: string) => Promise.resolve(cmd === 'list_fix_sessions' ? [active] : null));
+  const first = render(<FixAndTest game={game}/>);
+  await screen.findByRole('button', { name: 'Roll back fix' });
+  first.unmount(); render(<FixAndTest game={game}/>);
+  await screen.findByRole('button', { name: 'Keep this selection' });
+  expect(screen.queryByRole('button', { name: 'Launch & test now' })).toBeNull();
+});
+it('finishes a session without inventory or browser receipts', async () => {
+  let sessions = [active];
+  invoke.mockImplementation(async (cmd: string) => {
+    if (cmd === 'list_fix_sessions') return sessions;
+    if (cmd === 'finish_game_fix') { sessions = []; return null; }
+    throw new Error('Unexpected command');
+  });
+  render(<ActiveFixSessions/>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Keep selection' }));
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Unfinished repairs' })).toBeNull());
+  expect(invoke).toHaveBeenCalledWith('finish_game_fix', { sessionId: 'saved', confirmed: true });
+});
+it('keeps recovery controls if rollback fails', async () => {
+  invoke.mockImplementation((cmd: string) => cmd === 'list_fix_sessions' ? Promise.resolve([active]) : Promise.reject('Close Steam first'));
+  render(<ActiveFixSessions/>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Roll back' }));
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Close Steam first');
+  expect(screen.getByRole('button', { name: 'Keep selection' })).toBeTruthy();
+});

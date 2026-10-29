@@ -167,3 +167,63 @@ pub fn supervise_monitored(mut child: Child, out: ChildStdout, err: ChildStderr,
         assert_eq!(&bytes[..31],&[b'a';31]); assert!(bytes[31..].iter().all(|b|*b==b'b'));
     }
 }
+
+// A dedicated process adopts orphaned descendants before the runtime starts.
+// Unlike process-group polling, this also covers double-fork/setsid launchers.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LaunchSpec {
+    program: std::ffi::OsString,
+    args: Vec<std::ffi::OsString>,
+    env: Vec<(std::ffi::OsString, Option<std::ffi::OsString>)>,
+    cwd: Option<std::path::PathBuf>,
+}
+pub(crate) fn spawn_runtime(command: &mut std::process::Command) -> io::Result<Child> {
+    // Unit fixtures exercise command construction; packaged-binary tests exercise re-exec.
+    #[cfg(test)] { return command.spawn(); }
+    #[cfg(not(test))] {
+        use std::os::unix::process::CommandExt;
+        fs::metadata(command.get_program())?;
+        let spec = LaunchSpec {
+            program: command.get_program().into(), args: command.get_args().map(Into::into).collect(),
+            env: command.get_envs().map(|(k,v)|(k.into(),v.map(Into::into))).collect(),
+            cwd: command.get_current_dir().map(Into::into),
+        };
+        // Inherit bundle libraries for our helper; apply host overrides only to the runtime.
+        std::process::Command::new(std::env::current_exe()?)
+            .arg("--supervise-runtime").arg(serde_json::to_string(&spec)?)
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()).process_group(0).spawn()
+    }
+}
+pub fn handle_cli() -> Option<i32> {
+    if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new("--supervise-runtime")) { return None; }
+    let result = (|| -> Result<i32, Box<dyn std::error::Error>> {
+        let args: Vec<_> = std::env::args_os().collect();
+        if args.len() != 3 { return Err("Invalid supervisor arguments".into()); }
+        let spec: LaunchSpec = serde_json::from_str(args[2].to_str().ok_or("Invalid launch specification")?)?;
+        if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } != 0 { return Err(io::Error::last_os_error().into()); }
+        let mut command = std::process::Command::new(spec.program);
+        command.args(spec.args);
+        for (key,value) in spec.env { if let Some(value)=value { command.env(key,value); } else { command.env_remove(key); } }
+        if let Some(cwd)=spec.cwd { command.current_dir(cwd); }
+        let child = command.spawn()?;
+        let primary = child.id() as libc::pid_t;
+        let mut exit_code = 125;
+        loop {
+            let mut status = 0;
+            let pid = unsafe { libc::waitpid(-1, &mut status, 0) };
+            if pid < 0 {
+                let error=io::Error::last_os_error();
+                if error.raw_os_error()==Some(libc::EINTR) { continue; }
+                if error.raw_os_error()==Some(libc::ECHILD) { break; }
+                return Err(error.into());
+            }
+            if pid == primary {
+                exit_code = if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) }
+                    else { 128 + libc::WTERMSIG(status) };
+            }
+        }
+        Ok(exit_code)
+    })();
+    Some(match result { Ok(code)=>code, Err(error)=>{ eprintln!("Runtime supervisor: {error}");125 } })
+}

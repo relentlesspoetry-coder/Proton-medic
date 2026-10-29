@@ -34,6 +34,7 @@ struct LogFingerprint {
     len: u64,
 }
 
+#[cfg(test)]
 fn log_locations(home: &Path, app_id: &str) -> Vec<PathBuf> {
     let filename = format!("steam-{app_id}.log");
     [home.join(&filename),
@@ -48,6 +49,7 @@ fn fingerprint(path: &Path) -> Option<LogFingerprint> {
     Some(LogFingerprint { path: path.to_path_buf(), modified: meta.modified().ok()?, len: meta.len() })
 }
 
+#[cfg(test)]
 fn fresh_log(home: &Path, app_id: &str, before: &[LogFingerprint], start: SystemTime)
     -> Option<LogFingerprint> {
     // Only a log that actually changed during THIS test counts as new evidence.
@@ -104,8 +106,9 @@ fn launch_and_observe(binary: &Path, args: &[String], seconds: u64,
     }
     // IMPORTANT: Never kill the child on timeout. Steam can be a long-running
     // client, not a short-lived helper. Dropping Child detaches safely.
-    let fresh_log = fresh_log(home, app_id, &before, start_wall
-        .checked_sub(Duration::from_secs(1)).unwrap_or(SystemTime::UNIX_EPOCH));
+    let evidence_start = start_wall.checked_sub(Duration::from_secs(1)).unwrap_or(SystemTime::UNIX_EPOCH);
+    let fresh_log = diagnostics::owned_log_candidates(home, app_id, library_path, scan).into_iter()
+        .filter_map(|p| fingerprint(&p)).filter(|log|changed_log(&before,log,evidence_start)).max_by_key(|log|log.modified);
     let mut codes = Vec::new();
     let mut severity = Vec::new();
     let mut unreadable = false;
@@ -140,7 +143,8 @@ pub fn test_game(app_id: String, library_path: String, seconds: u64, confirmed: 
     let library = scan.libraries.iter().find(|l| l.path == library_path)
         .ok_or("Steam library is unavailable")?;
     let home = env::var_os("HOME").map(PathBuf::from).ok_or("HOME was not found")?;
-    let before = log_locations(&home, &app_id).into_iter().filter_map(|p| fingerprint(&p)).collect();
+    if !matches!(library.install_kind.as_str(),"Native"|"Flatpak") { return Err("This library belongs to multiple Steam installations. Launch it from Steam directly.".into()); }
+    let before = diagnostics::owned_log_candidates(&home, &app_id, &library_path, &scan).into_iter().filter_map(|p| fingerprint(&p)).collect();
     // Attempt log setup, but never make safe account selection a launch prerequisite.
     let logging = logging_for_launch(crate::repairs::require_steam_closed().is_err(),
         || crate::game_logging::prepare(app_id.clone(), library_path.clone(), true));

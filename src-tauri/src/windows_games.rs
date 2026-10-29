@@ -213,7 +213,7 @@ fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<G
     record.boot_id=boot_id();record.run_id=Some(run);record.exit_code=None;record.state=if install{"installer-running"}else{"game-running"}.into();
     record.message=if install{"Complete the setup window, then select the installed game executable."}else{"Game started."}.into();
     history::begin(&logs,&record,&r,install)?;save(&dir,&record)?;
-    let child=command_for_record(&r,&dir,&prefix,&exe,&logs,&record,install).spawn();
+    let child=crate::runtime_session::spawn_runtime(&mut command_for_record(&r,&dir,&prefix,&exe,&logs,&record,install));
     let mut child=match child{Ok(c)=>c,Err(e)=>{record.last_launched_at=previous_launch;record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");persist_completion(&dir,&record)?;return Ok(view(&dir,record,false));}};
     let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);

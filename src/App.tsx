@@ -16,6 +16,7 @@ import { ProtonAdvisor } from './ProtonAdvisor';
 import { WindowsGames } from './WindowsGames';
 import { UnifiedLibrary, type LibraryFilter, type LibrarySource, type LibrarySort } from './UnifiedLibrary';
 import { AutoLogMonitor } from './AutoLogMonitor';
+import { ActiveFixSessions } from './ActiveFixSessions';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
 import { PagedList } from './PagedList';
@@ -192,6 +193,7 @@ export default function App() {
       <div className="pm-side-bottom"><div><ShieldCheck size={17}/><span><strong>Your scans stay local</strong><small>Scans read-only. Repairs opt-in.</small></span></div></div>
     </aside>
     <main className="pm-main">
+      <ActiveFixSessions/>
       <AppUpdater/>
       {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
       {page === 'home' && <>

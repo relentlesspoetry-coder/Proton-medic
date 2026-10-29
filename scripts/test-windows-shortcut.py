@@ -77,6 +77,36 @@ class WindowsShortcutTests(unittest.TestCase):
             time.sleep(0.05)
         return process
 
+    def test_detached_child_keeps_profile_prefix_and_update_locked(self):
+        runtime = self.home/'bin/wine'
+        child = self.home/'detached.py'
+        release = self.home/'release-detached'
+        child.write_text('import time\nfrom pathlib import Path\n'
+                         f'Path({str(self.receipt)!r}).write_text("started")\n'
+                         f'while not Path({str(release)!r}).exists(): time.sleep(0.02)\n')
+        runtime.write_text('#!/usr/bin/python3\nimport subprocess\n'
+                          f'subprocess.Popen(["/usr/bin/python3", {str(child)!r}], start_new_session=True, '
+                          'stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n')
+        process = subprocess.Popen([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)],
+                                   env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 30
+            while not self.receipt.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(self.receipt.exists(), 'Detached runtime did not start')
+            time.sleep(0.7)
+            self.assertIsNone(process.poll(), 'Supervisor exited while detached game was active')
+            self.assertEqual(json.loads((self.profile/'profile.json').read_text())['state'], 'game-running')
+            for path in [self.prefix/'.proton-medic.lock', self.home/'data/proton-medic/locks/activity.lock']:
+                with path.open('r+') as lock:
+                    with self.assertRaises(BlockingIOError):
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            release.touch()
+            output, error = process.communicate(timeout=30)
+        self.assertEqual(process.returncode, 0, error)
+        self.assertEqual(json.loads((self.profile/'profile.json').read_text())['state'], 'game-exited')
+
     def test_two_profiles_cannot_launch_the_same_prefix_concurrently(self):
         first = self.start_held_runtime()
         second = self.root/'456-789'

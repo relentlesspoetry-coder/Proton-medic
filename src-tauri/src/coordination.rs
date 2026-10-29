@@ -50,10 +50,13 @@ pub fn config(path: &Path) -> Result<File, String> {
     lock(&parent.join(name), false)
         .map_err(|e|format!("Another Proton Medic instance is changing this Steam configuration. Retry after it finishes: {e}"))
 }
-pub fn prefix(prefix: &Path) -> Result<File, String> {
+pub struct PrefixLease { _stable: File, _legacy: Option<File> }
+pub fn prefix(prefix: &Path) -> Result<PrefixLease, String> {
+    let stable = prefix_location(prefix)?;
     let prefix = fs::canonicalize(prefix).map_err(|e|e.to_string())?;
-    lock(&prefix.join(".proton-medic.lock"), false)
-        .map_err(|e|format!("This Windows prefix is in use by another Proton Medic game or installer: {e}"))
+    let legacy = lock(&prefix.join(".proton-medic.lock"), false)
+        .map_err(|e|format!("This Windows prefix is in use by another Proton Medic game or installer: {e}"))?;
+    Ok(PrefixLease { _stable: stable, _legacy: Some(legacy) })
 }
 
 #[cfg(test)] mod tests {
@@ -76,10 +79,42 @@ pub fn prefix(prefix: &Path) -> Result<File, String> {
         let alias=f.0.join("alias");std::os::unix::fs::symlink(&prefix_path,&alias).unwrap();
         let first=prefix(&prefix_path).unwrap();assert!(prefix(&alias).is_err());drop(first);assert!(prefix(&alias).is_ok());
     }
+    #[test] fn repairs_share_launch_lock_and_keep_it_across_directory_rename() {
+        let f=Fixture::new();let data=f.0.join("compatdata");let pfx=data.join("pfx");fs::create_dir_all(&pfx).unwrap();
+        let launch=prefix(&pfx).unwrap();assert!(repair_prefix(&pfx).is_err());drop(launch);
+        let repair=repair_prefix(&pfx).unwrap();
+        fs::rename(&data,f.0.join("backup")).unwrap();
+        assert!(repair_prefix(&pfx).is_err());
+        fs::create_dir_all(&pfx).unwrap();assert!(prefix(&pfx).is_err());drop(repair);
+        assert!(prefix(&pfx).is_ok());
+    }
     #[test] fn existing_symlinks_and_hard_links_are_never_used_as_locks() {
         let f=Fixture::new();let target=f.0.join("keep");fs::write(&target,b"keep").unwrap();
         let link=f.0.join("link");std::os::unix::fs::symlink(&target,&link).unwrap();assert!(lock(&link,false).is_err());
         let hard=f.0.join("hard");fs::hard_link(&target,&hard).unwrap();assert!(lock(&hard,false).is_err());
         assert_eq!(fs::read(target).unwrap(),b"keep");
     }
+}
+
+fn resolved_location(path: &Path) -> Result<PathBuf,String> {
+    match fs::canonicalize(path) {
+        Ok(path)=>Ok(path),
+        Err(e) if e.kind()==std::io::ErrorKind::NotFound => {
+            let parent=path.parent().ok_or("Prefix location unavailable")?;
+            Ok(resolved_location(parent)?.join(path.file_name().ok_or("Prefix name unavailable")?))
+        },
+        Err(e)=>Err(e.to_string()),
+    }
+}
+fn prefix_location(path: &Path) -> Result<File,String> {
+    use sha2::{Digest,Sha256};
+    use std::os::unix::ffi::OsStrExt;
+    let resolved=resolved_location(path)?;
+    let hash=format!("{:x}",Sha256::digest(resolved.as_os_str().as_bytes()));
+    lock(&update_path()?.with_file_name(format!("prefix-{hash}.lock")),false)
+        .map_err(|e|format!("This Windows prefix is in use by another Proton Medic operation: {e}"))
+}
+pub fn repair_prefix(path: &Path) -> Result<PrefixLease,String> {
+    if path.exists() { return prefix(path); }
+    Ok(PrefixLease { _stable:prefix_location(path)?, _legacy:None })
 }

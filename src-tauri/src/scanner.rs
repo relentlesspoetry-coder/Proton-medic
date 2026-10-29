@@ -305,20 +305,25 @@ fn scan_home(home: &Path) -> ScanReport {
     let mut seen_tools = HashSet::new();
     let mut game_keys = HashSet::<(String, PathBuf)>::new();
     let mut libs = Vec::<(PathBuf, String)>::new();
-    let mut overrides = BTreeMap::<String, String>::new();
+    let mut overrides = BTreeMap::<PathBuf, BTreeMap<String, String>>::new();
+    let mut owners = BTreeMap::<PathBuf, usize>::new();
 
     for (kind, candidate) in installation_candidates(home) {
         if !candidate.join("steamapps").is_dir() { continue; }
         let root = clean_path(&candidate);
         if !seen_roots.insert(root.clone()) { continue; }
         report.installations.push(SteamInstallation { kind: kind.into(), path: display_path(&root) });
-        overrides.extend(read_tool_mapping(&root, &mut report.warnings));
+        let mapping = read_tool_mapping(&root, &mut report.warnings);
+        let mut owned_libraries = HashSet::new();
         for lib in libraries_from_vdf(&root, &mut report.warnings) {
             if !lib.join("steamapps").is_dir() {
                 report.warnings.push(format!("Steam library unavailable or inaccessible: {}", display_path(&lib)));
                 continue;
             }
             let canonical = clean_path(&lib);
+            if !owned_libraries.insert(canonical.clone()) { continue; }
+            *owners.entry(canonical.clone()).or_default() += 1;
+            overrides.insert(canonical.clone(), mapping.clone());
             if seen_libraries.insert(canonical.clone()) {
                 libs.push((canonical, kind.into()));
             }
@@ -330,7 +335,7 @@ fn scan_home(home: &Path) -> ScanReport {
     for (lib, kind) in libs {
         let steamapps = lib.join("steamapps");
         report.libraries.push(SteamLibrary {
-            path: display_path(&lib), steam_apps_path: display_path(&steamapps), install_kind: kind,
+            path: display_path(&lib), steam_apps_path: display_path(&steamapps), install_kind: if owners.get(&lib).copied().unwrap_or(0) == 1 { kind } else { "Ambiguous".into() },
         });
         let Ok(entries) = fs::read_dir(&steamapps) else {
             report.warnings.push(format!("Cannot read Steam library: {}", display_path(&steamapps)));
@@ -381,7 +386,7 @@ fn scan_home(home: &Path) -> ScanReport {
                 manifest_path: display_path(&manifest_path),
                 prefix_exists: prefix_path.is_dir(), prefix_path: display_path(&prefix_path),
                 build_id: text_get(state, "buildid").map(str::to_string),
-                configured_tool: overrides.get(app_id).cloned(),
+                configured_tool: if owners.get(&lib).copied().unwrap_or(0) == 1 { overrides.get(&lib).and_then(|m|m.get(app_id)).cloned() } else { None },
                 last_played_at: played_timestamp(text_get(state, "LastPlayed")),
             });
         }
@@ -418,6 +423,30 @@ mod tests {
         }
     }
     impl Drop for TestHome { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+
+    #[test] fn native_and_flatpak_mappings_keep_library_ownership() {
+        let home=TestHome::new();
+        for (relative,tool) in [(".local/share/Steam","native-proton"),(".var/app/com.valvesoftware.Steam/data/Steam","flatpak-proton")] {
+            let root=home.0.join(relative);
+            fs::create_dir_all(root.join("steamapps/common/Game")).unwrap();
+            fs::create_dir_all(root.join("config")).unwrap();
+            fs::write(root.join("steamapps/appmanifest_123.acf"),r#""AppState" { "appid" "123" "name" "Game" "installdir" "Game" }"#).unwrap();
+            fs::write(root.join("config/config.vdf"),format!(r#""CompatToolMapping" {{ "123" {{ "name" "{tool}" }} }}"#)).unwrap();
+            fs::write(root.join("steamapps/libraryfolders.vdf"),format!(r#""libraryfolders" {{ "0" {{ "path" "{}" }} }}"#,root.display())).unwrap();
+        }
+        let scan=scan_home(&home.0);
+        assert_eq!(scan.games.len(),2);
+        for game in &scan.games {
+            let flatpak=game.library_path.contains(".var/app");
+            assert_eq!(game.configured_tool.as_deref(),Some(if flatpak {"flatpak-proton"} else {"native-proton"}));
+            let paths=crate::diagnostics::owned_log_candidates(&home.0,"123",&game.library_path,&scan);
+            assert!(!paths.is_empty());
+            assert!(paths.iter().all(|p|p.starts_with(home.0.join(".var/app"))==flatpak));
+        }
+        let mut ambiguous=scan.clone();
+        ambiguous.libraries[0].install_kind="Ambiguous".into();
+        assert!(crate::diagnostics::owned_log_candidates(&home.0,"123",&ambiguous.libraries[0].path,&ambiguous).is_empty());
+    }
 
     #[test] fn last_played_dates_ignore_missing_zero_invalid_and_future_values(){
         assert_eq!(played_timestamp(Some("1700000000")),Some(1700000000000));

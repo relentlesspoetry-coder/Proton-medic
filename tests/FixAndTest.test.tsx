@@ -25,7 +25,7 @@ describe('Fix & Test interaction', () => {
     mockCommands(() => Promise.resolve(plan));
     await preview();
     expect((screen.getByRole('button', { name: 'Fix & Test' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(invoke.mock.calls.map(c => c[0])).toEqual(['get_game_logging', 'prepare_game_logging', 'plan_game_fix']);
+    expect(invoke.mock.calls.map(c => c[0])).toEqual(['list_fix_sessions', 'get_game_logging', 'prepare_game_logging', 'plan_game_fix']);
   });
   it('does not launch when the configuration change fails', async () => {
     mockCommands((name: string) => name === 'plan_game_fix' ? Promise.resolve(plan) : Promise.reject('Close Steam first'));
@@ -45,7 +45,7 @@ describe('Fix & Test interaction', () => {
     invoke.mockResolvedValueOnce('Prior configuration restored');
     fireEvent.click(screen.getByRole('button', { name: 'Roll back fix' }));
     await screen.findByText('Prior configuration restored');
-    expect(invoke).toHaveBeenLastCalledWith('rollback_game_fix', { sessionId: 'fixture-session', confirmed: true });
+    expect(invoke).toHaveBeenCalledWith('rollback_game_fix', { sessionId: 'fixture-session', confirmed: true });
     expect(sessionStorage.getItem('pm-fix:/fixture:123')).toBeNull();
   });
   it('does not label a clean log as verified gameplay', async () => {

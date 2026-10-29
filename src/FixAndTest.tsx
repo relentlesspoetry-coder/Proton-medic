@@ -13,11 +13,15 @@ export function FixAndTest({ game }: { game: Game }) {
     try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; }
   });
   useEffect(() => {
+    let stopped = false;
     const receive = () => {
-      try { setSession(JSON.parse(sessionStorage.getItem(key) ?? 'null')); } catch { /* retain current receipt */ }
+      void invoke<(Session & { appId: string; libraryPath: string })[]>('list_fix_sessions').then(sessions => {
+        if (!stopped && Array.isArray(sessions)) setSession(sessions.find(s => s.appId === game.appId && s.libraryPath === game.libraryPath) ?? null);
+      }).catch(e => { if (!stopped) setError(String(e)); });
     };
+    receive();
     window.addEventListener('pm-fix-session', receive);
-    return () => window.removeEventListener('pm-fix-session', receive);
+    return () => { stopped = true; window.removeEventListener('pm-fix-session', receive); };
   }, [key]);
   const [plan, setPlan] = useState<FixPlan | null>(null);
   const [approved, setApproved] = useState(false);
@@ -48,7 +52,8 @@ export function FixAndTest({ game }: { game: Game }) {
   }, [logging?.state, game.appId, game.libraryPath]);
   const remember = (next: Session | null) => {
     setSession(next);
-    try { if (next) sessionStorage.setItem(key, JSON.stringify(next)); else sessionStorage.removeItem(key); } catch { /* backend retains session until app exit */ }
+    try { if (next) sessionStorage.setItem(key, JSON.stringify(next)); else sessionStorage.removeItem(key); } catch { /* backend listing recovers the session */ }
+    window.dispatchEvent(new Event('pm-fix-session'));
   };
   const run = async (task: () => Promise<void>) => {
     setBusy(true); setError('');

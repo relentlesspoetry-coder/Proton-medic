@@ -15,7 +15,10 @@ fn argument(s:&str)->Result<String,String>{
 fn entry(name:&str,binary:&Path,root:&Path,id:&str,icon:&Path)->Result<String,String>{
     let binary=binary.to_str().ok_or("Application path is not UTF-8")?;
     if binary.contains('='){return Err("The application path cannot contain = in a desktop launcher".into());}
-    Ok(format!("[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment=Launch with the saved Proton Medic runtime and prefix\nExec={} --launch-windows-game {} --profile-root {}\nIcon={}\nTerminal=false\nCategories=Game;\nStartupNotify=false\n",value(name)?,argument(binary)?,argument(id)?,argument(root.to_str().ok_or("Profile path is not UTF-8")?)?,value(icon.to_str().ok_or("Icon path is not UTF-8")?)?))
+    let launch = if binary.ends_with(".AppImage") || std::env::var_os("APPIMAGE").as_deref()==Some(std::ffi::OsStr::new(binary)) {
+        format!("/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 {}",argument(binary)?)
+    } else { argument(binary)? };
+    Ok(format!("[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment=Launch with the saved Proton Medic runtime and prefix\nExec={} --launch-windows-game {} --profile-root {}\nIcon={}\nTerminal=false\nCategories=Game;\nStartupNotify=false\n",value(name)?,launch,argument(id)?,argument(root.to_str().ok_or("Profile path is not UTF-8")?)?,value(icon.to_str().ok_or("Icon path is not UTF-8")?)?))
 }
 fn create_file(path:&Path,bytes:&[u8],mode:u32)->Result<(),String>{
     match OpenOptions::new().write(true).create_new(true).mode(mode).open(path){
@@ -39,7 +42,8 @@ fn write_launcher(path:&Path,content:&[u8],backups:&Path)->Result<(),String>{
     if previous==content{return Ok(());}
     let before=std::str::from_utf8(&previous).map_err(|_|"Existing shortcut is not UTF-8")?;
     let after=std::str::from_utf8(content).map_err(|_|"Invalid launcher content")?;
-    let exec=|text:&str|text.lines().find(|line|line.starts_with("Exec=")).map(str::to_owned);
+    let exec=|text:&str|text.lines().find_map(|line|line.strip_prefix("Exec="))
+        .map(|line|line.strip_prefix("/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 ").unwrap_or(line).to_owned());
     if exec(before).is_none() || exec(before)!=exec(after){return Err("Existing shortcut launches a different command; it was left unchanged".into());}
     if !backups.exists(){use std::os::unix::fs::DirBuilderExt;fs::DirBuilder::new().mode(0o700).create(backups).map_err(|e|e.to_string())?;}
     let meta=fs::symlink_metadata(backups).map_err(|e|e.to_string())?;
@@ -97,6 +101,10 @@ mod tests{
         let text=entry("Game & Friends",Path::new("/opt/Proton Medic/proton-medic"),Path::new("/data/My Games"),"123-456",Path::new("/icon.png")).unwrap();
         assert!(text.contains("Exec=\"/opt/Proton Medic/proton-medic\" --launch-windows-game \"123-456\" --profile-root \"/data/My Games\""));
         assert!(text.contains("Terminal=false"));assert!(!text.contains("sh -c"));
+    }
+    #[test] fn portable_shortcut_preserves_no_fuse_launch_mode() {
+        let text=entry("Game",Path::new("/games/Proton Medic.AppImage"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        assert!(text.contains("Exec=/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 \"/games/Proton Medic.AppImage\" --launch-windows-game"));
     }
     #[test] fn escapes_reserved_characters_and_rejects_newline_injection(){
         assert_eq!(argument("$HOME%f`x`\\\"" ).unwrap(),"\"\\\\$HOME%%f\\\\`x\\\\`\\\\\\\\\\\\\"\"");

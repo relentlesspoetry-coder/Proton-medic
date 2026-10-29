@@ -185,6 +185,7 @@ pub fn apply(app_id: String, library_path: String, action: String, confirmed: bo
     let game = identify_game(&app_id, &library_path)?;
     let kind = Kind::from_id(&action)?;
     require_steam_closed()?;
+    let _prefix = crate::coordination::repair_prefix(Path::new(&game.prefix_path))?;
     let backup = archive_path(&game, kind)?;
     Ok(RepairOutcome { message: format!("{} archived. Nothing was deleted. You can restore this backup from Fixes.", kind.label()), backup, displaced_backup: None })
 }
@@ -215,6 +216,7 @@ pub fn restore(app_id: String, library_path: String, action: String, backup_name
     let game = identify_game(&app_id, &library_path)?;
     let kind = Kind::from_id(&action)?;
     require_steam_closed()?;
+    let _prefix = crate::coordination::repair_prefix(Path::new(&game.prefix_path))?;
     restore_for_game(&game, kind, &backup_name)
 }
 
