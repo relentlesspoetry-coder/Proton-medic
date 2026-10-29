@@ -107,3 +107,27 @@ it('keeps a confirmed game when optional shortcut creation fails',async()=>{
  fireEvent.click(screen.getByLabelText('I trust the selected executable and approve saving this game.'));fireEvent.click(screen.getByLabelText('Create desktop and applications-menu shortcuts'));await click('Confirm game');
  expect(invoke).toHaveBeenCalledWith('confirm_windows_installation',{id:'123',name:'Wukong',path:'/Games/Wukong/b1.exe',confirmed:true});expect(screen.getByRole('heading',{name:'Wukong'})).toBeTruthy();expect(screen.getByText(/Game saved, but shortcut creation failed/)).toBeTruthy();expect(invoke.mock.calls.some(c=>c[0]==='launch_windows_game')).toBe(false);
 });
+
+it('clears a temporary library error after a successful refresh',async()=>{
+ invoke.mockRejectedValueOnce(new Error('Temporary read failure'));
+ await mount();
+ expect(screen.getByRole('alert').textContent).toContain('Temporary read failure');
+ expect(screen.queryByText('Loading Windows games…')).toBeNull();
+ await click('Refresh');
+ expect(screen.queryByRole('alert')).toBeNull();
+ expect(screen.getByText('No Windows games have been added yet.')).toBeTruthy();
+});
+it('keeps loaded games visible when a later refresh fails',async()=>{
+ invoke.mockImplementation((cmd:string)=>Promise.resolve(cmd==='get_windows_game_icon'?null:{runtimes:[runtime],games:[{...game,gameExe:'/game.exe'}],warnings:[]}));
+ await mount();
+ invoke.mockRejectedValueOnce(new Error('Temporary read failure'));
+ await click('Refresh');
+ expect(screen.getByRole('heading',{name:'Fixture'})).toBeTruthy();
+ expect(screen.getByRole('alert').textContent).toContain('Your saved games are unchanged');
+});
+it('successful background refreshes do not dismiss operation failures',async()=>{
+ await mount();open.mockRejectedValueOnce(new Error('Picker unavailable'));
+ await click('Choose installer (.exe)');
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+ expect(screen.getByRole('alert').textContent).toContain('Picker unavailable');
+});

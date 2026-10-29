@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.14 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.15 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -30,7 +30,7 @@ The update button appears at the top right on every page, with the installed ver
 
 ### Steam Deck / SteamOS
 
-1. Switch to **Desktop Mode** and download `proton-medic_0.6.14_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
+1. Switch to **Desktop Mode** and download `proton-medic_0.6.15_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
 2. Move it to a permanent folder such as `~/Applications`. Game shortcuts refer to this location.
 3. In Dolphin, open **Properties → Permissions**, enable **Is executable**, then open the AppImage.
 
@@ -39,7 +39,7 @@ GTK, WebKitGTK, and application fonts travel with the AppImage. No DEB installat
 If the system reports that FUSE is missing, run it without FUSE from Konsole:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.14_amd64.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.15_amd64.AppImage"
 ```
 
 The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35 or newer. Graphics drivers and the desktop session come from the operating system. Steam and an installed Proton or Wine runtime are required for their respective game-launching features; the application does not install or replace graphics drivers or game runtimes.
@@ -49,7 +49,7 @@ The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35
 Download the amd64 DEB and install it using a package manager so that dependencies are installed too:
 
 ```bash
-sudo apt install ./proton-medic_0.6.14_amd64.deb
+sudo apt install ./proton-medic_0.6.15_amd64.deb
 ```
 
 The DEB requires an Ubuntu 24.04-compatible x86_64 system with glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. Use the AppImage on SteamOS. Existing installations can check for signed updates in the app.
@@ -100,3 +100,5 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.13 changes](RELEASE-v0.6.13.md)
 
 - [v0.6.14 changes](RELEASE-v0.6.14.md)
+
+- [v0.6.15 changes](RELEASE-v0.6.15.md)

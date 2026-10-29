@@ -21,7 +21,7 @@ let browser;
  browser=await chromium.launch({headless:true,args:['--no-sandbox']});
  const context=await browser.newContext();
  const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.addInitScript(()=>{
+ const fixture=()=>{
   const names=['Black Myth: Wukong','Hollow Knight','No Man’s Sky','Baldur’s Gate 3','Stardew Valley','ELDEN RING'];
   const games=names.map((name,i)=>({name,appId:String(100+i),libraryPath:'/home/player/Games/SteamLibrary',installPath:'/home/player/Games/'+name,installPathExists:i!==2,manifestPath:'/home/player/Games/steamapps/appmanifest_'+i+'.acf',prefixPath:'/home/player/Games/compatdata/'+i,prefixExists:true,configuredTool:'GE-Proton10-34',buildId:'123456'}));
   const findings=[{code:'wine-exception',severity:'warning',title:'A Windows exception was recorded',description:'The runtime log contains an exception. Review the game and runtime settings before trying a repair.',recommendation:'Try a different installed Proton version after backing up your configuration.',evidence:['Unhandled exception in game process']}];
@@ -43,7 +43,8 @@ let browser;
    if(cmd==='startup_diagnostic')return;
    throw new Error('Unexpected fixture command: '+cmd);
   }};
- });
+ };
+ await page.addInitScript(fixture);
  const results=[];
  for(const [width,height] of [[1440,900],[1200,800],[850,620],[1280,800],[390,844]]){
   await page.setViewportSize({width,height});await page.goto(address);await page.getByText('6',{exact:true}).waitFor();
@@ -82,8 +83,25 @@ let browser;
   results.push({width,name:'Installation review and launch settings',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
   if(width===1200)await page.screenshot({path:path.join(output,'windows-options.jpg'),fullPage:true,type:'jpeg',quality:80});
  }
+ const touchContext=await browser.newContext({hasTouch:true,viewport:{width:1280,height:800}});
+ const touch=await touchContext.newPage();touch.on('pageerror',e=>errors.push(e.message));
+ await touch.addInitScript(fixture);await touch.goto(address);await touch.getByText('6',{exact:true}).waitFor();
+ for(const name of ['Home','My Games','Windows Games','Settings']){
+  await touch.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).click();
+  const small=await touch.evaluate(()=>[...document.querySelectorAll('button,summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&(r.width<43.5||r.height<43.5)}).map(el=>el.textContent));
+  if(small.length)throw Error('Small Deck touch targets on '+name+': '+JSON.stringify(small));
+  if(await touch.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Deck touch layout overflow: '+name);
+  results.push({name:'Deck touch: '+name,layout:'passed'});
+  if(name==='My Games'){
+   await touch.getByRole('textbox',{name:'Search games'}).focus();
+   const outline=await touch.locator('.pm-search').evaluate(el=>getComputedStyle(el).outlineStyle);
+   if(outline==='none')throw Error('Library search has no visible focus outline');
+  }
+  if(name==='Home')await touch.screenshot({path:path.join(output,'deck-touch-home.jpg'),fullPage:true,type:'jpeg',quality:80});
+ }
+ await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg']) {
+ for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();

@@ -29,12 +29,19 @@ export function WindowsGames() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [refreshError, setRefreshError] = useState('');
   const sequence = useRef(0);
   const taskLocked = useRef(false);
   const refresh = useCallback(async () => {
     const request = ++sequence.current;
-    const next = await invoke<Library>('list_windows_games');
+    let next: Library;
+    try { next = await invoke<Library>('list_windows_games'); }
+    catch (error) {
+      if (request === sequence.current) setRefreshError(`Could not read Windows games: ${String(error)}`);
+      return;
+    }
     if (request !== sequence.current) return;
+    setRefreshError('');
     setLibrary(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); setLoaded(true);
     setRuntime(current => next.runtimes.some(r => r.id === current) ? current : next.runtimes[0]?.id ?? '');
   }, []);
@@ -42,7 +49,7 @@ export function WindowsGames() {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
-      try { await refresh(); } catch (e) { if (!stopped) setError(`Could not read Windows games: ${String(e)}`); }
+      try { await refresh(); }
       finally { if (!stopped) timer = setTimeout(() => void poll(), 5000); }
     };
     void poll();
@@ -76,12 +83,13 @@ export function WindowsGames() {
 
   return <>
     <div className="pm-page-title"><div><h1>Windows Games</h1><p>Launch games with their saved Wine or Proton environment.</p></div><button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void run(refresh)}><RefreshCw size={17}/>Refresh</button></div>
+    {refreshError && <p role="alert" className="pm-repair-danger">{refreshError} Your saved games are unchanged. Use Refresh to try again.</p>}
     {error && <p role="alert" className="pm-repair-danger">{error}</p>}
     {notice && <p role="status" className="pm-auto-message">{notice}</p>}
     {library.warnings.map((warning, i) => <p key={i} role="alert" className="pm-repair-danger">{warning}</p>)}
     <section className="pm-section" aria-label="Managed Windows games">
       <div className="pm-section-heading"><div><h2>Your Windows games</h2><p>Choose a game to launch, rename, or manage.</p></div></div>
-      {!library.games.length && <p>{loaded ? 'No Windows games have been added yet.' : 'Loading Windows games…'}</p>}
+      {!library.games.length && <p role="status">{loaded ? 'No Windows games have been added yet.' : refreshError ? 'Windows game library unavailable.' : 'Loading Windows games…'}</p>}
       <PagedList className="pm-windows-list" items={library.games} render={game => <WindowsGameCard key={game.id} game={game} runtimes={library.runtimes} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
       {!!library.removedGames?.length && <details className="pm-update-details"><summary>Removed games ({library.removedGames.length})</summary><p>Game files and prefixes are kept. Restore a game to show it in this list again.</p><div className="pm-removed-games">{library.removedGames.map(game => <div className="pm-removed-game" key={game.id}><span>{game.name}</span><button disabled={busy || isRunning(game)} className="pm-button pm-button-secondary" onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: false, confirmed: true }); await refresh(); })}>Restore {game.name}</button></div>)}</div></details>}
 
