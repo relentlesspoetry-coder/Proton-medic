@@ -136,7 +136,7 @@ function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify,
     {game.state==='installer-exited'&&!game.gameExe&&<InstallationAssistant game={game} busy={busy} run={run} onConfirm={async(name,path,shortcut)=>{
       remember(await invoke<Game>('confirm_windows_installation',{id:game.id,name,path,confirmed:true}));await refresh();notify('Game saved. Launch it when you are ready to test.');
       if(shortcut){try{await invoke('create_windows_game_shortcut',{id:game.id,confirmed:true});notify('Game saved. Desktop and applications-menu shortcuts created.');}catch(error){throw new Error('Game saved, but shortcut creation failed: '+String(error)+'. Use Create desktop shortcut to retry.');}}
-    }/>}
+    }}/>}
 
     <div className="pm-button-row">
       <button disabled={busy || running} className="pm-button pm-button-secondary" onClick={() => void run(async () => {
