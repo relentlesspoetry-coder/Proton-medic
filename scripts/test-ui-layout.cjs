@@ -71,7 +71,7 @@ let browser;
  }
  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Windows Games',exact:true}).click();
  await page.getByRole('combobox',{name:'Installed executable for Game Setup'}).selectOption('/home/player/Games/A New Game/Binaries/Win64/game.exe');
- await page.getByLabelText('I trust the selected executable and approve saving this game.').check();
+ await page.getByLabel('I trust the selected executable and approve saving this game.').check();
  await page.getByText('Game settings and logs',{exact:true}).first().click();
  await page.getByRole('button',{name:'Edit launch settings',exact:true}).click();
  await page.getByRole('textbox',{name:'Launch arguments for Black Myth: Wukong'}).fill('-dx12\ntwo words\n$HOME');
