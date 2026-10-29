@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the packaged native launch path with a disposable profile and fake Wine."""
+import fcntl
 import argparse
 import json
 import os
@@ -55,6 +56,66 @@ class WindowsShortcutTests(unittest.TestCase):
     def launch(self):
         return subprocess.run([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)],
                               env=self.env, text=True, capture_output=True, timeout=60)
+
+    def start_held_runtime(self):
+        runtime = self.home/'bin/wine'
+        runtime.write_text('#!/usr/bin/python3\nimport time\nfrom pathlib import Path\n'
+                           f'Path({str(self.receipt)!r}).write_text("started")\n'
+                           f'while not Path({str(self.home / "release-runtime")!r}).exists(): time.sleep(0.05)\n')
+        process = subprocess.Popen([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)],
+                                   env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        def finish():
+            (self.home/'release-runtime').touch()
+            process.communicate(timeout=30)
+        self.addCleanup(finish)
+        deadline = time.monotonic() + 30
+        while not self.receipt.exists():
+            if process.poll() is not None:
+                self.fail(process.communicate()[1])
+            if time.monotonic() >= deadline:
+                self.fail('Fixture runtime did not start')
+            time.sleep(0.05)
+        return process
+
+    def test_two_profiles_cannot_launch_the_same_prefix_concurrently(self):
+        first = self.start_held_runtime()
+        second = self.root/'456-789'
+        second.mkdir()
+        record = dict(self.record, id='456-789', prefixPath=str(self.prefix))
+        (second/'profile.json').write_text(json.dumps(record))
+        result = subprocess.run([str(BINARY), '--launch-windows-game', '456-789', '--profile-root', str(self.root)],
+                                env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('prefix is in use', result.stderr)
+        self.assertEqual(json.loads((second/'profile.json').read_text())['state'], 'ready-to-test')
+        self.assertIsNone(first.poll())
+        (self.home/'release-runtime').touch()
+        first.communicate(timeout=30)
+        retry = subprocess.run([str(BINARY), '--launch-windows-game', '456-789', '--profile-root', str(self.root)],
+                               env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+
+    def test_shortcut_blocks_updates_until_its_runtime_finishes(self):
+        process = self.start_held_runtime()
+        with (self.home/'data/proton-medic/locks/activity.lock').open('r+') as lock:
+            with self.assertRaises(BlockingIOError):
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            (self.home/'release-runtime').touch()
+            process.communicate(timeout=30)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_active_update_blocks_shortcut_launch_without_changing_profile(self):
+        locks = self.home/'data/proton-medic/locks'
+        locks.mkdir(parents=True)
+        before = (self.profile/'profile.json').read_bytes()
+        with (locks/'activity.lock').open('w+') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.launch()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('app update is active', result.stderr)
+            self.assertFalse(self.receipt.exists())
+            self.assertEqual((self.profile/'profile.json').read_bytes(), before)
+        self.assertEqual(self.launch().returncode, 0)
 
     def test_external_executable_keeps_prefix_without_a_desktop_session(self):
         result = self.launch()

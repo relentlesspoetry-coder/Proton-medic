@@ -1,9 +1,14 @@
 //! Serialize updates against game launches and configuration changes.
-use std::{path::{Path, PathBuf}, process::Stdio, sync::{OnceLock, RwLock, RwLockReadGuard}};
+use std::{path::{Path, PathBuf}, process::Stdio, sync::{atomic::{AtomicBool, Ordering}, Mutex, OnceLock, RwLock, RwLockReadGuard}};
 static UPDATING: RwLock<bool> = RwLock::new(false);
 static EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
 pub fn initialize() { if let Ok(path) = crate::portable::executable() { let _ = EXECUTABLE.set(path); } }
-pub fn activity() -> Result<RwLockReadGuard<'static, bool>, String> { activity_in(&UPDATING) }
+static REOPEN_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+static UPDATE_LEASE: Mutex<Option<std::fs::File>> = Mutex::new(None);
+pub struct Activity { _local: RwLockReadGuard<'static, bool>, _shared: std::fs::File }
+pub fn activity() -> Result<Activity, String> {
+    Ok(Activity { _local: activity_in(&UPDATING)?, _shared: crate::coordination::activity()? })
+}
 fn activity_in(state: &RwLock<bool>) -> Result<RwLockReadGuard<'_, bool>, String> {
     let guard = state.read().map_err(|_| "Update state unavailable")?;
     if *guard { return Err("An app update is in progress. Wait for Proton Medic to reopen.".into()); }
@@ -11,9 +16,12 @@ fn activity_in(state: &RwLock<bool>) -> Result<RwLockReadGuard<'_, bool>, String
 }
 pub fn begin() -> Result<(), String> {
     begin_in(&UPDATING, || {
+        let lease = crate::coordination::update()?;
         crate::windows_games::require_update_idle()?;
         crate::workflow::require_update_idle()?;
-        crate::game_logging::require_update_idle()
+        crate::game_logging::require_update_idle()?;
+        *UPDATE_LEASE.lock().map_err(|_|"Update lock unavailable")? = Some(lease);
+        Ok(())
     })
 }
 fn begin_in(state: &RwLock<bool>, idle: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
@@ -23,7 +31,28 @@ fn begin_in(state: &RwLock<bool>, idle: impl FnOnce() -> Result<(), String>) -> 
     *updating = true; Ok(())
 }
 pub fn cancel() -> Result<(), String> {
-    *UPDATING.write().map_err(|_| "Update state unavailable")? = false; Ok(())
+    let mut updating = UPDATING.write().map_err(|_| "Update state unavailable")?;
+    UPDATE_LEASE.lock().map_err(|_|"Update lock unavailable")?.take();
+    REOPEN_ATTEMPTED.store(false, Ordering::Release);
+    *updating = false; Ok(())
+}
+// Reserve this process for shutdown only after its supervised work has finished.
+// The same local gate excludes a new GUI operation between the check and window close.
+pub fn prepare_close() -> Result<(), String> {
+    close_in(&UPDATING, REOPEN_ATTEMPTED.load(Ordering::Acquire), || {
+        crate::windows_games::require_update_idle()?;
+        crate::workflow::require_update_idle()?;
+        crate::game_logging::require_update_idle()?;
+        if crate::proton_manager::busy() { return Err("Wait for the Proton download to finish or cancel it first.".into()); }
+        Ok(())
+    })
+}
+fn close_in(state: &RwLock<bool>, reopen_attempted: bool, idle: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    let mut stopping = state.try_write().map_err(|_|"Wait for the current operation to finish.")?;
+    if *stopping && !reopen_attempted { return Err("Wait for the app update to finish.".into()); }
+    idle()?;
+    *stopping = true;
+    Ok(())
 }
 fn validate_version(value: &str) -> Result<(), String> {
     let parts: Vec<_> = value.split('.').collect();
@@ -50,6 +79,7 @@ fn launch_installed(path: &Path, version: &str) -> Result<std::process::Child, S
 pub fn restart(app: tauri::AppHandle, version: String) -> Result<(), String> {
     let updating = UPDATING.read().map_err(|_| "Update state unavailable")?;
     if !*updating { return Err("No app update is awaiting relaunch".into()); }
+    REOPEN_ATTEMPTED.store(true, Ordering::Release);
     let path = EXECUTABLE.get().ok_or("Installed program path unavailable")?;
     launch_installed(path, &version)?;
     app.exit(0); Ok(())
@@ -57,6 +87,14 @@ pub fn restart(app: tauri::AppHandle, version: String) -> Result<(), String> {
 #[cfg(test)] mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    #[test] fn close_waits_for_work_and_reserves_shutdown_without_blocking_manual_update_recovery() {
+        let state=RwLock::new(false);let work=activity_in(&state).unwrap();
+        assert!(close_in(&state,false,||Ok(())).is_err());drop(work);
+        assert!(close_in(&state,false,||Err("Game is running".into())).is_err());assert!(activity_in(&state).is_ok());
+        close_in(&state,false,||Ok(())).unwrap();assert!(activity_in(&state).is_err());
+        assert!(close_in(&state,false,||Ok(())).is_err());
+        assert!(close_in(&state,true,||Ok(())).is_ok());
+    }
     #[test] fn rejects_invalid_versions() {
         for v in ["", "1.2", "1.2.3.4", "1.2.3;sh", "../1", "1.2.-3"] { assert!(validate_version(v).is_err()); }
         assert!(validate_version("0.6.11").is_ok());

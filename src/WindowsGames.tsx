@@ -29,6 +29,8 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
   const [prefix, setPrefix] = useState('');
   const [runtime, setRuntime] = useState('');
   const [approved, setApproved] = useState(false);
+  const runtimeRef = useRef('');
+  const chooseRuntime = (next: string) => { runtimeRef.current = next; setRuntime(next); setApproved(false); };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -46,7 +48,8 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
     if (request !== sequence.current) return;
     setRefreshError('');
     setLibrary(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); setLoaded(true);
-    setRuntime(current => next.runtimes.some(r => r.id === current) ? current : next.runtimes[0]?.id ?? '');
+    const nextRuntime = next.runtimes.some(r => r.id === runtimeRef.current) ? runtimeRef.current : next.runtimes[0]?.id ?? '';
+    if (nextRuntime !== runtimeRef.current) chooseRuntime(nextRuntime);
   }, []);
   useEffect(() => {
     let stopped = false;
@@ -110,7 +113,7 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
       {installer && <p className="pm-selected-path"><code>{installer}</code></p>}
       <div className="pm-form-grid">
         <label>Game name<input aria-label="Game name" value={name} maxLength={120} disabled={busy} onChange={e => { setName(e.target.value); setApproved(false); }}/></label>
-        <label>Runtime<select aria-label="Runtime" value={runtime} disabled={busy} onChange={e => { setRuntime(e.target.value); setApproved(false); }}>{library.runtimes.map(r => <option value={r.id} key={r.id}>{r.name} ({r.kind})</option>)}</select></label>
+        <label>Runtime<select aria-label="Runtime" value={runtime} disabled={busy} onChange={e => { chooseRuntime(e.target.value); }}>{library.runtimes.map(r => <option value={r.id} key={r.id}>{r.name} ({r.kind})</option>)}</select></label>
       </div>
       {mode === 'existing' && <div className="pm-prefix-picker"><button className="pm-button pm-button-secondary" disabled={busy} onClick={() => void run(async () => {
         const directory = await open({ multiple: false, directory: true, title: 'Choose the existing Windows prefix containing drive_c and system.reg' });
@@ -131,7 +134,17 @@ function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify,
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
   useEffect(() => { setName(game.name); }, [game.name]);
-  const [logs, setLogs] = useState<LogReport | null>(null);
+  const [logs, setLogs] = useState<{ run: string | null; report: LogReport } | null>(null);
+  const currentRun = useRef(game.logDirectory); currentRun.current = game.logDirectory;
+  const logRequest = useRef(0);
+  useEffect(() => { setLogs(null); ++logRequest.current; }, [game.logDirectory]);
+  useEffect(() => () => { ++logRequest.current; }, []);
+  const readLogs = async () => {
+    const run = game.logDirectory; const request = ++logRequest.current;
+    const report = await invoke<LogReport>('analyze_windows_game', { id: game.id });
+    if (request === logRequest.current && currentRun.current === run) setLogs({ run, report });
+  };
+  const logReport = logs?.run === game.logDirectory ? logs.report : null;
   const running = isRunning(game);
   const select = async (path: string) => { remember(await invoke<Game>('select_windows_game_executable', { id: game.id, path, confirmed: true })); setSearch(null); await refresh(); };
   return <article className="pm-windows-game">
@@ -170,8 +183,8 @@ function WindowsGameCard({ game, runtimes, busy, run, remember, refresh, notify,
 
 
       <dl className="pm-windows-paths"><dt>Game executable</dt><dd>{game.gameExe ?? 'Not selected'}</dd><dt>Windows prefix</dt><dd>{game.prefixDirectory ?? game.windowsDrive.replace(/\/drive_c$/, '')}</dd><dt>Last exit code</dt><dd>{game.exitCode ?? 'Not available'}</dd><dt>Logs</dt><dd>{game.logDirectory ?? 'No run yet'}</dd></dl>
-      <button disabled={busy || !game.logDirectory} className="pm-button pm-button-secondary" onClick={() => void run(async () => setLogs(await invoke<LogReport>('analyze_windows_game', { id: game.id })))}>Read runtime logs</button>
-      {logs && <div>{logs.logs.map(log => <p key={log.name}>{log.name}: {log.status}{log.truncated ? ' · partial log (tail retained)' : ''}</p>)}{logs.findings.length ? logs.findings.map(f => <p key={f.code}><strong>{f.title}</strong> — {f.recommendation}</p>) : <p>No recognized errors in the captured logs.</p>}</div>}
+      <button disabled={busy || !game.logDirectory} className="pm-button pm-button-secondary" onClick={() => void run(readLogs)}>Read runtime logs</button>
+      {logReport && <div>{logReport.logs.map(log => <p key={log.name}>{log.name}: {log.status}{log.truncated ? ' · partial log (tail retained)' : ''}</p>)}{logReport.findings.length ? logReport.findings.map(f => <p key={f.code}><strong>{f.title}</strong> — {f.recommendation}</p>) : <p>No recognized errors in the captured logs.</p>}</div>}
     </details>
   </article>;
 }

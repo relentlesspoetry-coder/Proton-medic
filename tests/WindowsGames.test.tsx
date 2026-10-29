@@ -141,3 +141,31 @@ it('opens only the selected unified-library game while retaining its controls',a
 it('explains when a selected game was removed from the visible library',async()=>{
  invoke.mockResolvedValue({games:[],runtimes:[runtime],warnings:[]});render(<WindowsGames selectedId="123" onBack={()=>{}}/>);await act(async()=>{});expect(screen.getByText(/no longer in the visible library/)).toBeTruthy();
 });
+
+it('clears approval when a refresh replaces the selected runtime',async()=>{
+ let runtimes=[runtime];invoke.mockImplementation(async command=>command==='list_windows_games'?{runtimes,games:[],warnings:[]}:null);
+ await mount();open.mockResolvedValue('/tmp/setup.exe');await click('Choose installer (.exe)');fireEvent.click(screen.getByRole('checkbox'));
+ runtimes=[{...runtime,id:'wine:replacement',name:'Replacement Wine'}];await click('Refresh');
+ expect((screen.getByLabelText('Runtime') as HTMLSelectElement).value).toBe('wine:replacement');
+ expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+ expect((screen.getByRole('button',{name:'Run installer'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(invoke).not.toHaveBeenCalledWith('install_windows_game',expect.anything());
+});
+it('keeps approval when a refresh retains the selected runtime',async()=>{
+ await mount();open.mockResolvedValue('/tmp/setup.exe');await click('Choose installer (.exe)');fireEvent.click(screen.getByRole('checkbox'));await click('Refresh');
+ expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true);
+});
+it('removes old findings when a new run replaces the log directory',async()=>{
+ let current={...game};invoke.mockImplementation(async command=>command==='analyze_windows_game'?{findings:[{code:'old',title:'Old run error',recommendation:'Old recommendation'}],logs:[]}:{runtimes:[runtime],games:[current],warnings:[]});
+ await mount();fireEvent.click(screen.getByText('Game settings and logs'));await click('Read runtime logs');expect(screen.getByText('Old run error')).toBeTruthy();
+ current={...current,logDirectory:'/managed/123/logs/2',state:'game-running'};await click('Refresh');expect(screen.queryByText('Old run error')).toBeNull();
+});
+it('ignores a late log response from a previous run',async()=>{
+ let current={...game};let resolve!:(value:unknown)=>void;
+ invoke.mockImplementation(async command=>command==='analyze_windows_game'?new Promise(r=>{resolve=r;}):{runtimes:[runtime],games:[current],warnings:[]});
+ await mount();fireEvent.click(screen.getByText('Game settings and logs'));fireEvent.click(screen.getByRole('button',{name:'Read runtime logs'}));
+ current={...current,logDirectory:'/managed/123/logs/2',state:'game-running'};
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+ await act(async()=>{resolve({findings:[{code:'old',title:'Late old error',recommendation:'Old recommendation'}],logs:[]});});
+ expect(screen.queryByText('Late old error')).toBeNull();
+});

@@ -40,11 +40,11 @@ pub fn plan(app_id: &str, library: &str) -> Result<FixPlan, String> {
                 &rec.status, rec.suggested_tool.clone()))
 }
 
-struct Session { app_id: String, library: String, undo: Option<auto_select::ConfigUndo>, attempted: bool }
+struct Session { _activity: Option<std::fs::File>, app_id: String, library: String, undo: Option<auto_select::ConfigUndo>, attempted: bool }
 static SESSIONS: LazyLock<Mutex<HashMap<String, Session>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 pub(crate) fn require_update_idle() -> Result<(),String> {
     if !SESSIONS.try_lock().map_err(|_|"Wait for the current repair")?.is_empty() {
-        return Err("Finish or roll back open Fix & Test sessions before updating.".into());
+        return Err("Finish or roll back open Fix & Test sessions before closing or updating.".into());
     }
     Ok(())
 }
@@ -54,6 +54,7 @@ pub struct FixStarted { pub session_id: String, pub selection: auto_select::Auto
 
 pub fn start(app_id: String, library: String, expected_tool: String, confirmed: bool) -> Result<FixStarted, String> {
     if !confirmed { return Err("Approve the configuration change before applying the fix".into()); }
+    let activity = crate::coordination::activity()?;
     let mut sessions = SESSIONS.lock().map_err(|_| "Fix session lock unavailable")?;
     if sessions.len() >= 32 { return Err("Finish or roll back existing fix sessions before starting more".into()); }
     if sessions.values().any(|s| s.app_id == app_id && s.library == library) {
@@ -64,7 +65,7 @@ pub fn start(app_id: String, library: String, expected_tool: String, confirmed: 
     if fresh.tool.as_deref() != Some(expected_tool.as_str()) { return Err("Recommendation changed. Diagnose again and review the new fix.".into()); }
     let (selection, undo) = auto_select::select_tracked(app_id.clone(), library.clone(), true, Some(&expected_tool))?;
     let id = format!("{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos());
-    sessions.insert(id.clone(), Session { app_id, library, undo, attempted: false });
+    sessions.insert(id.clone(), Session { _activity: Some(activity), app_id, library, undo, attempted: false });
     Ok(FixStarted { session_id: id, selection })
 }
 
@@ -135,7 +136,7 @@ mod tests {
         assert!(finish("none", false).unwrap_err().contains("Confirm"));
     }
     #[test] fn failed_launch_is_not_retried_automatically() {
-        let mut session = Session { app_id: "123".into(), library: "/fixture".into(), undo: None, attempted: false };
+        let mut session = Session { _activity: None, app_id: "123".into(), library: "/fixture".into(), undo: None, attempted: false };
         let calls = std::cell::Cell::new(0);
         let first = observe_once(&mut session, |app, library| {
             assert_eq!(app,"123"); assert_eq!(library,"/fixture");

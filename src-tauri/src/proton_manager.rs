@@ -23,6 +23,7 @@ pub fn local() -> Local {
     let scan=inventory::steam();
     Local { installations:scan.installations.clone(),tools:scan.compatibility_tools.clone(),status:status(),umu_available:umu().is_some() }
 }
+pub fn busy()->bool{BUSY.load(Ordering::Acquire)}
 pub fn status()->Option<Status>{ STATUS.lock().ok().and_then(|s|s.clone()) }
 fn update(phase:&str,tag:&str,downloaded:u64,total:u64,message:&str){if let Ok(mut s)=STATUS.lock(){*s=Some(Status{phase:phase.into(),tag:tag.into(),downloaded,total,message:message.into()});}}
 pub fn cancel()->Result<(),String>{if BUSY.load(Ordering::Acquire){CANCEL.store(true,Ordering::Release);}Ok(())}
@@ -141,9 +142,11 @@ async fn install(tag:&str,root:&str)->Result<(),String>{
 }
 pub fn start(tag:String,root:String,confirmed:bool)->Result<(),String>{
     if !confirmed{return Err("Approve the Proton download first".into());}if !safe_name(&tag)||!tag.starts_with("GE-Proton"){return Err("Invalid Proton release".into());}
+    let _starting=crate::app_update::activity()?;
+    let download_lease=crate::coordination::activity()?;
     if BUSY.compare_exchange(false,true,Ordering::AcqRel,Ordering::Acquire).is_err(){return Err("A Proton installation is already in progress".into());}
     CANCEL.store(false,Ordering::Release);update("preparing",&tag,0,0,"Checking release metadata…");
-    std::thread::spawn(move||{let result=std::panic::catch_unwind(||{let _activity=crate::app_update::activity()?;tauri::async_runtime::block_on(install(&tag,&root))}).unwrap_or_else(|_|Err("Proton installer stopped unexpectedly. Existing versions are unchanged; retry the download.".into()));
+    std::thread::spawn(move||{let _download_lease=download_lease;let result=std::panic::catch_unwind(||{let _activity=crate::app_update::activity()?;tauri::async_runtime::block_on(install(&tag,&root))}).unwrap_or_else(|_|Err("Proton installer stopped unexpectedly. Existing versions are unchanged; retry the download.".into()));
         match result{Ok(())=>update("installed",&tag,0,0,"Installed. Restart Steam to load the new version; then choose it for a game."),Err(e)=>update(if CANCEL.load(Ordering::Acquire){"canceled"}else{"failed"},&tag,0,0,&e)}BUSY.store(false,Ordering::Release);
     });Ok(())
 }

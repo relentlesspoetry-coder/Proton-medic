@@ -5,13 +5,13 @@ use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{LazyLock, Mute
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Status { pub state: String, pub message: String, pub backup_path: Option<String>, pub can_restore: bool }
-struct Record { target: PathBuf, status: Status, before: Option<String>, after: Option<String> }
+struct Record { _activity: Option<std::fs::File>, target: PathBuf, status: Status, before: Option<String>, after: Option<String> }
 static REQUESTS: LazyLock<Mutex<HashMap<(String,String),Record>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) fn require_update_idle()->Result<(),String>{
     let records=REQUESTS.try_lock().map_err(|_|"Wait for game logging setup")?;
     if records.values().any(|r|r.status.state=="waiting-for-steam") {
-        return Err("Close Steam and finish queued game logging setup before updating.".into());
+        return Err("Close Steam and finish queued game logging setup before closing or updating.".into());
     }
     Ok(())
 }
@@ -133,6 +133,7 @@ fn enable_file(path:&Path,app:&str,guard:bool)->Result<(Status,Option<String>,Op
 }
 pub fn prepare(app:String,library:String,confirmed:bool)->Result<Status,String>{
     if !confirmed{return Err("Approve diagnosing this game before enabling logs".into());}
+    let activity=crate::coordination::activity()?;
     let mut records=REQUESTS.lock().map_err(|_|"Log setup lock unavailable")?;
     let key=(app.clone(),library.clone());
     if let Some(record)=records.get(&key){if record.status.state=="waiting-for-steam" && repairs::require_steam_closed().is_err(){return Ok(record.status.clone());}}
@@ -145,7 +146,7 @@ pub fn prepare(app:String,library:String,confirmed:bool)->Result<Status,String>{
     if status.backup_path.is_none() && status.state=="ready" {
         if let Some(old)=records.get(&key){if old.target==path && old.after==after && old.status.can_restore{return Ok(old.status.clone());}}
     }
-    records.insert(key,Record{target:path,status:status.clone(),before,after});Ok(status)
+    records.insert(key,Record{_activity:if status.state=="waiting-for-steam"{Some(activity)}else{None},target:path,status:status.clone(),before,after});Ok(status)
 }
 pub fn process_pending(){
     let Ok(mut records)=REQUESTS.try_lock() else{return};
@@ -158,6 +159,7 @@ pub fn process_pending(){
             enable_file(&record.target,app,true)
         })();
         match result{Ok((s,b,a))=>{record.status=s;record.before=b;record.after=a;},Err(e)=>{record.status.state="needs-attention".into();record.status.message=e;}}
+        if record.status.state!="waiting-for-steam" { record._activity=None; }
     }
 }
 pub fn status(app:&str,library:&str)->Result<Option<Status>,String>{Ok(REQUESTS.lock().map_err(|_|"Log setup lock unavailable")?.get(&(app.into(),library.into())).map(|r|r.status.clone()))}

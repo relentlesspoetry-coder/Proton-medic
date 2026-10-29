@@ -23,7 +23,7 @@ static JOBS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(||Mutex::new(HashS
 static UNSAVED: LazyLock<Mutex<HashMap<String, Record>>> = LazyLock::new(||Mutex::new(HashMap::new()));
 pub(crate) fn require_update_idle()->Result<(),String>{
     if !JOBS.try_lock().map_err(|_|"Wait for the current Windows game operation")?.is_empty() {
-        return Err("Finish Windows games and installers before updating. No process will be stopped automatically.".into());
+        return Err("Finish Windows games and installers before closing or updating. No process will be stopped automatically.".into());
     }
     if !UNSAVED.try_lock().map_err(|_|"Wait for the completion receipt")?.is_empty() {
         return Err("A game completion receipt is still being saved. Keep Proton Medic open and retry.".into());
@@ -195,6 +195,7 @@ fn lock_profile(dir:&Path)->Result<File,String>{
     file.try_lock().map_err(|_|"Another Proton Medic instance is changing this profile")?;Ok(file)
 }
 fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<Game,String>{
+    let activity=crate::coordination::activity()?;
     let mut jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;
     if jobs.contains(&record.id){return Err("This game's installer or game is already running in this app session".into());}
     let _profile_lock=lock_profile(&dir)?;
@@ -203,6 +204,7 @@ fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<G
     let run=stamp()?;let log_root=dir.join("logs");directory(&log_root,true)?;let logs=log_root.join(&run);directory(&logs,true)?;
     if record.prefix_path.is_none(){for p in [dir.join("compatdata"),dir.join("compatdata/pfx")]{directory(&p,true)?;}}
     let prefix=prefix_path(&dir,&record);directory(&prefix,false)?;
+    let prefix_lock=crate::coordination::prefix(&prefix)?;
     let stdout=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stdout.log")).map_err(|e|e.to_string())?;
     let stderr=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stderr.log")).map_err(|e|e.to_string())?;
     let previous_launch=record.last_launched_at.or_else(||history::latest_game_launch(&dir,record.run_id.as_deref()));
@@ -216,6 +218,8 @@ fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<G
     let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);
     std::thread::spawn(move||{
+        let _activity=activity;
+        let _prefix_lock=prefix_lock;
         let _profile_lock_guard=_profile_lock;
         let (status,capture_ok)=crate::runtime_session::supervise_monitored(child,out,err,stdout,stderr,Some(&logs));
         record.exit_code=status.as_ref().ok().and_then(|s|s.code());
