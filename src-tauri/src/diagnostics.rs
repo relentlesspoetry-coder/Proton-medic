@@ -306,7 +306,7 @@ pub fn diagnose(report: &ScanReport) -> DiagnosticsReport {
     };
     let mut results = Vec::new();
     for game in &report.games {
-        results.push(analyze_candidates(owned_log_candidates(&home, &game.app_id, &game.library_path, report), &game.app_id, &game.library_path));
+        results.push(analyze_owned_game(&home, &game.app_id, &game.library_path, report));
     }
     DiagnosticsReport { games: results, system: system_info(), warnings: vec![] }
 }
@@ -465,4 +465,8 @@ pub(crate) fn owned_log_candidates(home: &Path, app_id: &str, library: &str, sca
     if !matches!(kind,"Native"|"Flatpak") || scan.installations.iter().filter(|i|i.kind==kind).count()>1 { return vec![]; }
     let flatpak=home.join(".var/app/com.valvesoftware.Steam");
     log_candidates(home,app_id).into_iter().filter(|p|p.starts_with(&flatpak)==(kind=="Flatpak")).collect()
+}
+
+pub(crate) fn analyze_owned_game(home: &Path, app_id: &str, library: &str, scan: &ScanReport) -> GameDiagnostics {
+    analyze_candidates(owned_log_candidates(home,app_id,library,scan),app_id,library)
 }

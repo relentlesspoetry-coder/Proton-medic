@@ -61,7 +61,7 @@ pub fn poll(enabled: bool) -> Result<Vec<Update>, String> {
             continue;
         }
         if new || modified {
-            let detail = diagnostics::analyze_game(&home, &game.app_id, &game.library_path);
+            let detail = diagnostics::analyze_owned_game(&home, &game.app_id, &game.library_path, &scan);
             let rec = advisor::advise_for_library(&scan, game, Some(&detail));
             let plan = workflow::eligible(game.install_path_exists, &rec.evidence, detail.modified_unix_seconds, now, &rec.status, rec.suggested_tool);
             entry.eligible = plan.can_apply; entry.tool = plan.tool; entry.reason = plan.reason.clone();
@@ -123,10 +123,17 @@ mod tests {
     }
     #[test] fn metadata_detects_new_log_and_ignores_symlinks() {
         let root=std::env::temp_dir().join(format!("pm-monitor-{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
-        std::fs::create_dir_all(&root).unwrap();assert!(stamp(&root,"123").is_empty());
-        let log=root.join("steam-123.log");std::fs::write(&log,"unhandled exception").unwrap();assert_eq!(stamp(&root,"123").len(),1);
-        let first=stamp(&root,"123");std::fs::write(&log,"unhandled exception more evidence").unwrap();assert_ne!(first,stamp(&root,"123"));
-        std::fs::remove_file(&log).unwrap();std::os::unix::fs::symlink(root.join("other"),&log).unwrap();assert!(stamp(&root,"123").is_empty());
+        let library=root.join(".local/share/Steam");
+        std::fs::create_dir_all(library.join("steamapps")).unwrap();
+        let scan=crate::scanner::scan_home(&root);let library=library.to_str().unwrap();
+        assert!(stamp(&root,"123",library,&scan).is_empty());
+        let log=root.join("steam-123.log");std::fs::write(&log,"unhandled exception").unwrap();assert_eq!(stamp(&root,"123",library,&scan).len(),1);
+        let other=root.join(".var/app/com.valvesoftware.Steam/steam-123.log");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();std::fs::write(&other,"vk_error_incompatible_driver").unwrap();
+        assert_eq!(stamp(&root,"123",library,&scan).len(),1);
+        assert_eq!(diagnostics::analyze_owned_game(&root,"123",library,&scan).log_path.as_deref(),log.to_str());
+        let first=stamp(&root,"123",library,&scan);std::fs::write(&log,"unhandled exception more evidence").unwrap();assert_ne!(first,stamp(&root,"123",library,&scan));
+        std::fs::remove_file(&log).unwrap();std::os::unix::fs::symlink(root.join("other"),&log).unwrap();assert!(stamp(&root,"123",library,&scan).is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

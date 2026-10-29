@@ -201,7 +201,7 @@ pub fn handle_cli() -> Option<i32> {
         let args: Vec<_> = std::env::args_os().collect();
         if args.len() != 3 { return Err("Invalid supervisor arguments".into()); }
         let spec: LaunchSpec = serde_json::from_str(args[2].to_str().ok_or("Invalid launch specification")?)?;
-        if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) } != 0 { return Err(io::Error::last_os_error().into()); }
+        if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong) } != 0 { return Err(io::Error::last_os_error().into()); }
         let mut command = std::process::Command::new(spec.program);
         command.args(spec.args);
         for (key,value) in spec.env { if let Some(value)=value { command.env(key,value); } else { command.env_remove(key); } }

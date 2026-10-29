@@ -193,8 +193,8 @@ export default function App() {
       <div className="pm-side-bottom"><div><ShieldCheck size={17}/><span><strong>Your scans stay local</strong><small>Scans read-only. Repairs opt-in.</small></span></div></div>
     </aside>
     <main className="pm-main">
-      <ActiveFixSessions/>
       <AppUpdater/>
+      <ActiveFixSessions/>
       {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
       {page === 'home' && <>
         <div className="pm-welcome"><div><h1>Your library.<br/><span>In good hands.</span></h1><p>Find your games, understand the issues, and choose what happens next.</p></div></div>

@@ -32,6 +32,8 @@ let browser;
   windows.games.push({...windows.games[0],id:'789-123',name:'Game Setup',gameExe:null,state:'installer-exited'});
   window.__PM_FIXTURE_WINDOWS=windows;
   window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
+   if(cmd==='list_fix_sessions')return window.__PM_FIX_SESSIONS??[];
+   if(cmd==='finish_game_fix'||cmd==='rollback_game_fix'){window.__PM_FIX_SESSIONS=[];return null;}
    if(cmd==='prepare_support_report')return {token:1,content:JSON.stringify({appVersion:'0.6.19',pathsRedacted:args.options.redactPaths,system:{os:'Zorin OS',architecture:'x86_64'},steam:{games:[{name:'Black Myth: Wukong',installPath:'[redacted path]',status:'review'}]},windows:{games:[{name:'Black Myth: Wukong',runtime:'GE-Proton10-34',exitCode:7}]}},null,2)+'\n'};
    if(cmd==='save_support_report')return '/home/player/Documents/proton-medic-report.json';
    if(cmd==='list_game_protons')return scan.compatibilityTools;
@@ -203,6 +205,19 @@ let browser;
  }
  await page.getByRole('button',{name:'Cancel queued log setup',exact:true}).click();
  await page.getByRole('button',{name:'Cancel queued log setup',exact:true}).waitFor({state:'detached'});
+ await page.evaluate(()=>{
+  window.__PM_FIX_SESSIONS=[{sessionId:'fixture-recovery',appId:'100',libraryPath:'/disconnected/'+('long-game-library-path-'.repeat(16)),selection:{toolName:'Proton Experimental'},attempted:true}];
+  window.dispatchEvent(new Event('pm-fix-session'));
+ });
+ await page.getByRole('region',{name:'Unfinished repairs'}).waitFor();
+ for(const [width,height] of [[1280,800],[390,844]]){
+  await page.setViewportSize({width,height});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Repair recovery overflow: '+width);
+  const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width,name:'Repair session recovery',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+ }
+ await page.getByRole('button',{name:'Keep selection',exact:true}).click();
+ await page.getByRole('region',{name:'Unfinished repairs'}).waitFor({state:'detached'});
  await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
  for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg','support-report.jpg','proton-manager.jpg']) {
