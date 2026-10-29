@@ -27,7 +27,7 @@ jobs:
       - name: Build portable application on glibc 2.35
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
-          CARGO_BUILD_JOBS: '2'
+          CARGO_BUILD_JOBS: '4'
         run: npm run tauri -- build --config src-tauri/tauri.appimage.conf.json --bundles appimage -- --locked
       - name: Name portable artifact
         run: |
@@ -35,6 +35,11 @@ jobs:
           mkdir portable
           cp "src-tauri/target/release/bundle/appimage/Proton Medic_${version}_amd64.AppImage" "portable/proton-medic_${version}_amd64.AppImage"
           chmod +x portable/*.AppImage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proton-medic-portable
+          path: portable/*.AppImage
+          if-no-files-found: error
       - name: Check bundled runtime in a clean desktop container
         run: |
           docker build -t pm-portable-smoke -f scripts/portable-smoke.Dockerfile .
@@ -43,7 +48,7 @@ jobs:
           image=$(realpath portable/*.AppImage)
           image="/source/${image#"$PWD/"}"
           docker run --rm -v "$PWD:/source:ro" pm-portable-smoke python3 scripts/test-windows-shortcut.py "$image"
-          docker run --rm --shm-size=512m -v "$PWD:/source:ro" -v "$PWD/portable-smoke:/output" pm-portable-smoke dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' python3 scripts/smoke-native.py "$image" /output/native.png
+          docker run --rm --security-opt seccomp=unconfined --shm-size=512m -v "$PWD:/source:ro" -v "$PWD/portable-smoke:/output" pm-portable-smoke dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' python3 scripts/smoke-native.py "$image" /output/native.png
       - name: Record native render
         run: |
           docker run --rm -i -v "$PWD:/source:ro" pm-portable-smoke python3 - <<'PY'
@@ -53,11 +58,6 @@ jobs:
           Image.open("portable-smoke/native.png").convert("RGB").save(data, format="JPEG", quality=80)
           print("PORTABLE_RENDER " + base64.b64encode(data.getvalue()).decode())
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: proton-medic-portable
-          path: portable/*.AppImage
-          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
