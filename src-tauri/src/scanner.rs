@@ -296,7 +296,7 @@ pub fn scan() -> ScanReport {
     }
 }
 
-fn scan_home(home: &Path) -> ScanReport {
+pub(crate) fn scan_home(home: &Path) -> ScanReport {
     let mut report = ScanReport {
         installations: vec![], libraries: vec![], games: vec![], compatibility_tools: vec![], warnings: vec![],
     };
