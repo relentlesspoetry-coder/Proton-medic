@@ -44,7 +44,8 @@ let browser;
    if(cmd==='recommend_proton')return {games:games.map(g=>({appId:g.appId,libraryPath:g.libraryPath,gameName:g.name,status:'try-version',suggestedTool:'Proton Experimental',configuredTool:'GE-Proton10-34',reason:'A different installed version may help with the recorded exception.',nextStep:'Back up your selection, then test the game.',confidence:'tentative',alternatives:['GE-Proton10-34'],evidence:['wine-exception']})),note:''};
    if(cmd==='list_windows_games')return windows;
    if(cmd==='get_windows_launch_history')return {entries:[{id:'1-1700000000',kind:'game',runtime:'GE-Proton10-34',startedAt:1700000000000,endedAt:1700000065000,state:'process-failed',exitCode:7,message:'Game process ended.',summaries:['A Windows exception was recorded'],partialLogs:true},{id:'1-1600000000',kind:'installer',runtime:'Wine',startedAt:1600000000000,endedAt:1600000065000,state:'installer-exited',exitCode:0,message:'Setup process ended.',summaries:[],partialLogs:false}],warnings:[]};
-   if(cmd==='monitor_game_logs')return [];
+   if(cmd==='monitor_game_logs')return window.__PM_PENDING_LOGS??[];
+   if(cmd==='cancel_game_logging'){window.__PM_PENDING_LOGS=[];return {state:'cancelled'};}
    if(cmd==='sample_windows_resources')return {status:'live',sample:{runId:args.runId,capturedAt:Date.now(),cpuPercent:145.2,memoryBytes:1536*1024*1024,peakMemoryBytes:1700*1024*1024,processCount:6,partial:false},message:''};
    if(cmd==='stop_windows_resource_monitor')return;
    if(cmd.includes('game_icon')||cmd==='get_windows_executable_icon')return null;
@@ -188,6 +189,20 @@ let browser;
   }
   if(name==='Home')await touch.screenshot({path:path.join(output,'deck-touch-home.jpg'),fullPage:true,type:'jpeg',quality:80});
  }
+ await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Settings',exact:true}).click();
+ await page.evaluate(()=>{window.__PM_PENDING_LOGS=[{appId:'100',libraryPath:'/home/player/Games/SteamLibrary',gameName:'Black Myth: Wukong',state:'logging-queued',message:'Log setup is waiting for Steam to close. You can cancel without changing settings.',codes:[],session:null}];});
+ await page.getByText('Automatically apply supported fixes',{exact:true}).click();
+ await page.getByRole('button',{name:'Cancel queued log setup',exact:true}).waitFor();
+ await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Home',exact:true}).click();
+ await page.getByText('1 game log update — review results',{exact:true}).click();
+ for(const [width,height] of [[1280,800],[390,844]]){
+  await page.setViewportSize({width,height});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Queued logging overflow: '+width);
+  const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width,name:'Cancel queued logging',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+ }
+ await page.getByRole('button',{name:'Cancel queued log setup',exact:true}).click();
+ await page.getByRole('button',{name:'Cancel queued log setup',exact:true}).waitFor({state:'detached'});
  await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
  for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg','support-report.jpg','proton-manager.jpg']) {

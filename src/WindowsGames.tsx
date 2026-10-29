@@ -83,6 +83,10 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
       : await invoke<Game>('register_windows_game', { name, path: installer, prefix, runtimeId: runtime, confirmed: true });
     if (game?.id) remember(game);
     setApproved(false); await refresh();
+    if (mode === 'install' && game.state === 'start-failed') {
+      setError(game.message);
+      return;
+    }
     setNotice(mode === 'install' ? 'Installer started. Complete its setup window, then review the suggested game executable in its card.' : 'Installed game added using its existing prefix.');
   });
   const switchMode = (next: 'install' | 'existing') => { setMode(next); setInstaller(''); setName(''); setPrefix(''); setApproved(false); };

@@ -11,9 +11,25 @@ static REQUESTS: LazyLock<Mutex<HashMap<(String,String),Record>>> = LazyLock::ne
 pub(crate) fn require_update_idle()->Result<(),String>{
     let records=REQUESTS.try_lock().map_err(|_|"Wait for game logging setup")?;
     if records.values().any(|r|r.status.state=="waiting-for-steam") {
-        return Err("Close Steam and finish queued game logging setup before closing or updating.".into());
+        return Err("Close Steam to finish logging setup, or choose Cancel queued log setup in Game log updates before closing or updating.".into());
     }
     Ok(())
+}
+
+pub(crate) fn pending() -> Result<Vec<(String,String)>,String> {
+    Ok(REQUESTS.lock().map_err(|_|"Log setup lock unavailable")?.iter()
+        .filter(|(_,r)|r.status.state=="waiting-for-steam").map(|(key,_)|key.clone()).collect())
+}
+fn cancel_record(record: &mut Record) -> Result<Status,String> {
+    if record.status.state!="waiting-for-steam" { return Err("Log setup is no longer queued. Refresh its status; saved settings were left unchanged.".into()); }
+    record.status=Status{state:"cancelled".into(),message:"Queued log setup cancelled. Steam settings were left unchanged.".into(),backup_path:None,can_restore:false};
+    record._activity=None;
+    Ok(record.status.clone())
+}
+pub fn cancel(app:String,library:String,confirmed:bool) -> Result<Status,String> {
+    if !confirmed { return Err("Approve cancelling queued log setup".into()); }
+    let mut records=REQUESTS.lock().map_err(|_|"Log setup lock unavailable")?;
+    cancel_record(records.get_mut(&(app,library)).ok_or("No queued log setup for this game")?)
 }
 
 fn options(original: &str) -> Result<String,String> {
@@ -192,6 +208,17 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {fn new()->Self{let p=std::env::temp_dir().join(format!("pm-logging-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));fs::create_dir_all(&p).unwrap();Self(p)}}
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
+    #[test] fn cancelling_queued_logging_releases_lease_without_touching_settings() {
+        let f=Fixture::new();let path=f.0.join("localconfig.vdf");fs::write(&path,CONFIG).unwrap();
+        let lease=crate::coordination::config(&path).unwrap();
+        let mut record=Record{_activity:Some(lease),target:path.clone(),status:Status{state:"waiting-for-steam".into(),message:String::new(),backup_path:None,can_restore:false},before:None,after:None};
+        assert!(crate::coordination::config(&path).is_err());
+        assert_eq!(cancel_record(&mut record).unwrap().state,"cancelled");assert!(crate::coordination::config(&path).is_ok());
+        assert_eq!(fs::read_to_string(&path).unwrap(),CONFIG);assert!(cancel_record(&mut record).is_err());
+        record.status.state="ready".into();record.status.can_restore=true;record.before=Some("original".into());record.after=Some("updated".into());
+        assert!(cancel_record(&mut record).is_err());assert!(record.status.can_restore);assert_eq!(record.before.as_deref(),Some("original"));
+        assert!(cancel("123".into(),"/fixture".into(),false).unwrap_err().contains("Approve"));
+    }
     #[test] fn enables_blank_and_argument_only_options(){
         assert_eq!(options("").unwrap(),"PROTON_LOG=1 %command%");
         assert_eq!(options("-dx11 -windowed").unwrap(),"PROTON_LOG=1 %command% -dx11 -windowed");
@@ -238,7 +265,7 @@ mod tests {
         let f=Fixture::new();let path=f.0.join("localconfig.vdf");fs::write(&path,CONFIG).unwrap();
         let(_,before,after)=enable_file(&path,"123",false).unwrap();
         let(second,_,_)=enable_file(&path,"123",false).unwrap();assert!(second.backup_path.is_none());
-        assert_eq!(fs::read_dir(&f.0).unwrap().count(),2);
+        assert_eq!(fs::read_dir(&f.0).unwrap().filter_map(Result::ok).filter(|e|e.path().extension().is_some_and(|x|x=="bak")).count(),1);
         let user=set_launch_value(&fs::read_to_string(&path).unwrap(),"123",Some("-user-change")).unwrap();fs::write(&path,&user).unwrap();
         assert!(restore_file(&path,"123",before.as_deref(),after.as_deref(),false).is_err());assert_eq!(fs::read_to_string(&path).unwrap(),user);
     }

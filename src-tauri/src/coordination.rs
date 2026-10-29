@@ -41,6 +41,15 @@ pub fn activity() -> Result<File, String> {
 pub fn update() -> Result<File, String> {
     lock(&update_path()?, false).map_err(|e|format!("Finish games, installers, downloads, and repairs in all Proton Medic windows before updating: {e}"))
 }
+// Lock a stable sibling, not the configuration inode replaced by atomic writes.
+pub fn config(path: &Path) -> Result<File, String> {
+    let parent = fs::canonicalize(path.parent().ok_or("Configuration directory unavailable")?).map_err(|e|e.to_string())?;
+    let mut name = std::ffi::OsString::from(".");
+    name.push(path.file_name().ok_or("Configuration filename unavailable")?);
+    name.push(".proton-medic.lock");
+    lock(&parent.join(name), false)
+        .map_err(|e|format!("Another Proton Medic instance is changing this Steam configuration. Retry after it finishes: {e}"))
+}
 pub fn prefix(prefix: &Path) -> Result<File, String> {
     let prefix = fs::canonicalize(prefix).map_err(|e|e.to_string())?;
     lock(&prefix.join(".proton-medic.lock"), false)

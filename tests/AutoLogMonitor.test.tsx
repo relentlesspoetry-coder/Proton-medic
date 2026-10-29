@@ -55,3 +55,19 @@ it('shows actionable monitor results in compact mode',async()=>{
  render(<AutoLogMonitor enabled={true} onToggle={()=>{}} expanded={false}/>);await act(async()=>{});
  expect(screen.getByText('Close Steam to continue')).toBeTruthy();expect(screen.queryByRole('checkbox')).toBeNull();
 });
+
+it('allows cancelling queued logging from any page without enabling repairs',async()=>{
+ const queued={appId:'123',libraryPath:'/fixture',gameName:'Fixture',state:'logging-queued',message:'Waiting for Steam',codes:[],session:null};
+ invoke.mockImplementation(async(command:string)=>command==='monitor_game_logs'?[queued]:{state:'cancelled'});
+ render(<AutoLogMonitor enabled={false} onToggle={()=>{}} expanded={false}/>);await act(async()=>{});
+ fireEvent.click(screen.getByText(/1 game log update/));
+ await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Cancel queued log setup'})));
+ expect(invoke).toHaveBeenCalledWith('cancel_game_logging',{appId:'123',libraryPath:'/fixture',confirmed:true});
+ expect(screen.queryByText('Waiting for Steam')).toBeNull();
+});
+it('retains the queued logging action when cancellation fails',async()=>{
+ invoke.mockImplementation(async(command:string)=>{if(command==='cancel_game_logging')throw new Error('Setup already completed');return [{appId:'123',libraryPath:'/fixture',gameName:'Fixture',state:'logging-queued',message:'Waiting for Steam',codes:[],session:null}];});
+ render(<AutoLogMonitor enabled={false} onToggle={()=>{}}/>);await act(async()=>{});
+ await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Cancel queued log setup'})));
+ expect(screen.getByRole('alert').textContent).toContain('Setup already completed');expect((screen.getByRole('button',{name:'Cancel queued log setup'}) as HTMLButtonElement).disabled).toBe(false);
+});

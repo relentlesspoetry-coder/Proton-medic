@@ -160,11 +160,24 @@ pub(crate) fn advise(game: &Game, diagnosis: Option<&GameDiagnostics>, tools: &[
     advice
 }
 
+pub(crate) fn advise_for_library(scan: &ScanReport, game: &Game, diagnosis: Option<&GameDiagnostics>) -> VersionAdvice {
+    match crate::auto_select::tools_for_library(scan, &game.library_path) {
+        Ok(tools) => advise(game, diagnosis, &installed_versions(&tools)),
+        Err(error) => {
+            let mut result = advise(game, diagnosis, &[]);
+            result.status = "need-information".into();
+            result.suggested_tool = None;
+            result.reason = format!("Cannot identify available Proton versions for this Steam library: {error}");
+            result.next_step = "Reconnect the library and scan again before changing Proton.".into();
+            result
+        }
+    }
+}
+
 pub fn recommend(scan: &ScanReport, report: &DiagnosticsReport) -> AdvisorReport {
-    let versions = installed_versions(&scan.compatibility_tools);
     let games = scan.games.iter().map(|game| {
         let diagnosis = report.games.iter().find(|d| d.app_id == game.app_id && d.library_path == game.library_path);
-        advise(game, diagnosis, &versions)
+        advise_for_library(scan, game, diagnosis)
     }).collect();
     AdvisorReport {
         games,

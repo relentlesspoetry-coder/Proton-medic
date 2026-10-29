@@ -39,7 +39,6 @@ pub fn poll(enabled: bool) -> Result<Vec<Update>, String> {
     let mut entries = ENTRIES.try_lock().map_err(|_| "Log monitor already checking")?;
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("Home directory unavailable")?);
     let scan = crate::inventory::steam();
-    let tools = advisor::installed_versions(&scan.compatibility_tools);
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
     let closed = !enabled || repairs::require_steam_closed().is_ok();
     let mut applied_this_poll = false;
@@ -63,7 +62,7 @@ pub fn poll(enabled: bool) -> Result<Vec<Update>, String> {
         }
         if new || modified {
             let detail = diagnostics::analyze_game(&home, &game.app_id, &game.library_path);
-            let rec = advisor::advise(game, Some(&detail), &tools);
+            let rec = advisor::advise_for_library(&scan, game, Some(&detail));
             let plan = workflow::eligible(game.install_path_exists, &rec.evidence, detail.modified_unix_seconds, now, &rec.status, rec.suggested_tool);
             entry.eligible = plan.can_apply; entry.tool = plan.tool; entry.reason = plan.reason.clone();
             entry.update.codes = plan.evidence;
@@ -95,6 +94,12 @@ pub fn poll(enabled: bool) -> Result<Vec<Update>, String> {
     let live: HashSet<_> = scan.games.iter().map(|g| (g.app_id.clone(), g.library_path.clone())).collect();
     entries.retain(|key, e| e.attempted || live.contains(key));
     let mut updates: Vec<_> = entries.values().filter(|e| !e.update.codes.is_empty() || e.changed || e.attempted).map(|e| e.update.clone()).collect();
+    for (app_id, library_path) in crate::game_logging::pending()? {
+        let game_name = scan.games.iter().find(|g|g.app_id==app_id && g.library_path==library_path)
+            .map(|g|g.name.clone()).unwrap_or_else(||format!("Steam app {app_id}"));
+        updates.push(Update { app_id, library_path, game_name, state:"logging-queued".into(),
+            message:"Log setup is waiting for Steam to close. You can cancel without changing settings.".into(), codes:vec![], session:None });
+    }
     updates.sort_by(|a,b| a.game_name.cmp(&b.game_name).then(a.library_path.cmp(&b.library_path)).then(a.app_id.cmp(&b.app_id)));
     Ok(updates)
 }

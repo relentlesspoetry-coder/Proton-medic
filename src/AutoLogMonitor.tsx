@@ -8,14 +8,18 @@ interface Update {
 export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled: boolean; onToggle: (enabled: boolean) => void; expanded?: boolean }) {
   const [updates, setUpdates] = useState<Update[]>([]);
   const [error, setError] = useState('');
+  const [cancelling, setCancelling] = useState(false);
+  const cancellation = useRef(0);
+  const cancelLocked = useRef(false);
   const delivered = useRef(new Set<string>());
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
+        const revision = cancellation.current;
         const next = await invoke<Update[]>('monitor_game_logs', { enabled });
-        if (stopped) return;
+        if (stopped || revision !== cancellation.current) return;
         setUpdates(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); setError('');
         for (const item of next) {
           if (!item.session || delivered.current.has(item.session.sessionId)) continue;
@@ -34,9 +38,19 @@ export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled
     void poll();
     return () => { stopped = true; clearTimeout(timer); };
   }, [enabled]);
-  const results = updates.map(item => <div key={`${item.libraryPath}:${item.appId}`} className="pm-auto-message" role="status"><strong>{item.gameName} · {item.state}</strong><p>{item.message}</p>
+  const cancelLogging = async (item: Update) => {
+    if (cancelLocked.current) return;
+    cancelLocked.current = true; setCancelling(true); setError(''); ++cancellation.current;
+    try {
+      await invoke('cancel_game_logging', {appId:item.appId,libraryPath:item.libraryPath,confirmed:true});
+      setUpdates(old => old.filter(value => !(value.state==='logging-queued' && value.appId===item.appId && value.libraryPath===item.libraryPath)));
+    } catch (error) { setError(String(error)); }
+    finally { ++cancellation.current; cancelLocked.current=false; setCancelling(false); }
+  };
+  const results = updates.map(item => <div key={`${item.libraryPath}:${item.appId}:${item.state}`} className="pm-auto-message" role="status"><strong>{item.gameName} · {item.state==='logging-queued'?'Logging queued':item.state}</strong><p>{item.message}</p>
+      {item.state==='logging-queued' && <button className="pm-button pm-button-secondary" disabled={cancelling} onClick={()=>void cancelLogging(item)}>Cancel queued log setup</button>}
       {item.session && <p>Backup: <code>{item.session.selection.backupPath || 'No change needed'}</code></p>}
-      <details><summary>Log findings</summary><p>{item.codes.join(', ') || 'No recognized error signatures'}</p></details>
+      {item.state!=='logging-queued' && <details><summary>Log findings</summary><p>{item.codes.join(', ') || 'No recognized error signatures'}</p></details>}
     </div>);
   if (!expanded && !error && !updates.length) return null;
   return <section className="pm-section" aria-label="Automatic game log reader">

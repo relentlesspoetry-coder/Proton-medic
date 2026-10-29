@@ -151,6 +151,11 @@ fn replace_config(path:&Path,app_id:&str,tool_id:&str,guard_steam:bool)->Result<
 }
 
 pub(crate) fn write_config(path: &Path, bytes: &[u8], updated: &[u8], guard_steam: bool) -> Result<(String,bool),String> {
+    let _lease = crate::coordination::config(path)?;
+    check_regular(path)?;
+    if fs::read(path).map_err(|e|e.to_string())? != bytes {
+        return Err("Steam configuration changed during the operation; original was not overwritten".into());
+    }
     let parent=path.parent().ok_or("Steam config has no parent folder")?;
     let file_name=path.file_name().and_then(|s|s.to_str()).ok_or("Invalid config filename")?;
     let stamp=unix_stamp()?;
@@ -249,7 +254,7 @@ pub fn manual_tools(app_id: &str, library_path: &str) -> Result<Vec<scanner::Com
     tools_for_library(&scan, library_path)
 }
 
-fn tools_for_library(scan: &scanner::ScanReport, library_path: &str) -> Result<Vec<scanner::CompatibilityTool>, String> {
+pub(crate) fn tools_for_library(scan: &scanner::ScanReport, library_path: &str) -> Result<Vec<scanner::CompatibilityTool>, String> {
     let roots = allowed_tool_roots(&config_for_library(scan, library_path)?)?;
     Ok(scan.compatibility_tools.iter().filter(|tool| fs::canonicalize(&tool.path).is_ok_and(|path| tool_allowed(&path, &roots))).cloned().collect())
 }
@@ -351,8 +356,9 @@ pub(crate) fn select_tracked(app_id:String,library_path:String,confirmed:bool, e
     if expected_tool.is_some_and(|expected| expected != requested) {
         return Err("Recommendation changed before the write. Diagnose again.".into());
     }
-    let selected=scan.compatibility_tools.iter().find(|t|t.name==requested)
-        .ok_or("Recommended Proton version is no longer installed")?;
+    let available = tools_for_library(&scan, &library_path)?;
+    let selected=available.iter().find(|t|t.name==requested)
+        .ok_or("Recommended Proton is not installed for this game’s Steam installation")?;
     let id=internal_id(&selected.name,Path::new(&selected.path))?;
     let config=config_for_library(&scan,&library_path)?;
     let (backup_path,changed)=replace_config(&config,&app_id,&id,true)?;
@@ -400,6 +406,50 @@ pub(crate) fn select_tracked(app_id:String,library_path:String,confirmed:bool, e
         assert!(!flatpak_choices.is_empty());
         fs::write(flatpak.join("steamapps/libraryfolders.vdf"), format!(r#""libraryfolders" {{ "1" {{ "path" "{}" }} }}"#, external.display())).unwrap();
         assert!(tools_for_library(&scan, external.to_str().unwrap()).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test] fn automatic_advice_uses_only_the_owning_steam_installation() {
+        let dir=std::env::temp_dir().join(format!("pm-auto-owner-{}-{}",std::process::id(),unix_stamp().unwrap()));
+        let native=dir.join("native"); let flatpak=dir.join("flatpak");
+        for root in [&native,&flatpak] {
+            fs::create_dir_all(root.join("config")).unwrap();
+            fs::create_dir_all(root.join("steamapps")).unwrap();
+            fs::write(root.join("config/config.vdf"),CONFIG).unwrap();
+        }
+        let local=native.join("compatibilitytools.d/GE-Proton10-1");
+        let foreign=flatpak.join("compatibilitytools.d/Proton Experimental");
+        for path in [&local,&foreign] {fs::create_dir_all(path).unwrap();}
+        let game=scanner::Game{app_id:"123".into(),name:"Fixture".into(),library_path:native.to_string_lossy().into(),install_path:String::new(),install_path_exists:true,manifest_path:String::new(),prefix_path:String::new(),prefix_exists:false,build_id:None,last_played_at:None,configured_tool:Some("proton_9".into())};
+        let mut scan=scanner::ScanReport{installations:vec![scanner::SteamInstallation{kind:"Native".into(),path:native.to_string_lossy().into()},scanner::SteamInstallation{kind:"Flatpak".into(),path:flatpak.to_string_lossy().into()}],libraries:vec![],games:vec![game.clone()],warnings:vec![],compatibility_tools:vec![
+            scanner::CompatibilityTool{name:"Proton Experimental".into(),path:foreign.to_string_lossy().into(),source:"Custom".into()},
+            scanner::CompatibilityTool{name:"GE-Proton10-1".into(),path:local.to_string_lossy().into(),source:"Custom".into()}]};
+        let detail=diagnostics::GameDiagnostics{app_id:"123".into(),library_path:game.library_path.clone(),log_path:None,log_size:None,modified_unix_seconds:None,truncated:false,status:"review".into(),notes:vec![],findings:vec![diagnostics::Finding{code:"wine-exception".into(),severity:"error".into(),title:"Exception".into(),description:String::new(),recommendation:String::new(),evidence:vec![]}]};
+        let advice=advisor::advise_for_library(&scan,&game,Some(&detail));
+        assert_eq!(advice.suggested_tool.as_deref(),Some("GE-Proton10-1"));
+        assert!(!advice.alternatives.contains(&"Proton Experimental".into()));
+        scan.compatibility_tools.retain(|t|t.path.as_str()!=local.to_str().unwrap());
+        assert_eq!(advisor::advise_for_library(&scan,&game,Some(&detail)).status,"need-proton");
+        fs::write(flatpak.join("steamapps/libraryfolders.vdf"),format!(r#""libraryfolders" {{ "1" {{ "path" "{}" }} }}"#,native.display())).unwrap();
+        let ambiguous=advisor::advise_for_library(&scan,&game,Some(&detail));
+        assert_eq!(ambiguous.status,"need-information");assert!(ambiguous.suggested_tool.is_none());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test] fn configuration_writes_exclude_other_processes_and_reject_stale_snapshots() {
+        use std::{io::{BufRead,BufReader},process::{Command,Stdio}};
+        let dir=std::env::temp_dir().join(format!("pm-config-lock-{}-{}",std::process::id(),unix_stamp().unwrap()));
+        fs::create_dir(&dir).unwrap();let path=dir.join("config.vdf");fs::write(&path,CONFIG).unwrap();
+        let lease=crate::coordination::config(&path).unwrap();drop(lease);
+        let mut child=Command::new("python3").args(["-c","import fcntl,sys; f=open(sys.argv[1],'r+'); fcntl.flock(f,fcntl.LOCK_EX); print('locked',flush=True); sys.stdin.read()"])
+            .arg(dir.join(".config.vdf.proton-medic.lock")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut ready=String::new();BufReader::new(child.stdout.take().unwrap()).read_line(&mut ready).unwrap();assert_eq!(ready.trim(),"locked");
+        assert!(replace_config(&path,"123","proton_10",false).is_err());assert_eq!(fs::read_to_string(&path).unwrap(),CONFIG);
+        drop(child.stdin.take());assert!(child.wait().unwrap().success());
+        replace_config(&path,"123","proton_10",false).unwrap();let newer=fs::read(&path).unwrap();
+        let stale=replacement_text(CONFIG,"456","proton_9").unwrap().0;
+        assert!(write_config(&path,CONFIG.as_bytes(),stale.as_bytes(),false).unwrap_err().contains("changed"));assert_eq!(fs::read(&path).unwrap(),newer);
+        replace_config(&path,"456","proton_9",false).unwrap();let final_text=fs::read_to_string(&path).unwrap();
+        assert!(final_text.contains("proton_10"));assert!(final_text.contains("\"456\""));
+        let lease=crate::coordination::config(&path).unwrap();assert!(replace_config(&path,"123","proton_9",false).is_err());drop(lease);
         fs::remove_dir_all(dir).unwrap();
     }
     #[test] fn edits_only_game_name_value_and_preserves_comments() {

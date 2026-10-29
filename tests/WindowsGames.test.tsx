@@ -169,3 +169,13 @@ it('ignores a late log response from a previous run',async()=>{
  await act(async()=>{resolve({findings:[{code:'old',title:'Late old error',recommendation:'Old recommendation'}],logs:[]});});
  expect(screen.queryByText('Late old error')).toBeNull();
 });
+
+it('reports an installer start failure without a started notice',async()=>{
+ let games:any[]=[];invoke.mockImplementation(async(command:string)=>{
+  if(command==='install_windows_game'){const failed={...game,state:'start-failed',exitCode:null,message:'Runtime failed to start: missing interpreter'};games=[failed];return failed;}
+  return {runtimes:[runtime],games,warnings:[]};
+ });
+ await mount();open.mockResolvedValue('/Downloads/setup.exe');await click('Choose installer (.exe)');fireEvent.click(screen.getByRole('checkbox'));await click('Run installer');
+ expect(screen.getByRole('alert').textContent).toContain('Runtime failed to start: missing interpreter');
+ expect(screen.queryByText(/Installer started\./)).toBeNull();expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+});
