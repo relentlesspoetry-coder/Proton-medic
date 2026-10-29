@@ -55,9 +55,15 @@ let browser;
   }
  }
  await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();await page.getByRole('button',{name:/Black Myth: Wukong/}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});
- const details=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();results.push({name:'Game detail',violations:details.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+ for(const name of ['Diagnostics','Proton','Launch & repair','Backups & details']) {
+  await page.getByRole('tab',{name,exact:true}).click();
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Game panel overflow: '+name);
+  const detail=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({name:'Game detail: '+name,violations:detail.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+  await page.screenshot({path:path.join(output,'detail-'+name.replaceAll(/[^a-zA-Z]+/g,'-')+'.jpg'),fullPage:true,type:'jpeg',quality:80});
+ }
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg']) {
+ for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();

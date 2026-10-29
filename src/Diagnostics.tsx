@@ -35,11 +35,11 @@ export function GameDiagnosis({ result }: { result: GameDiagnostics | null }) {
   if (!result) return <div className="diag-placeholder"><ClipboardList size={19}/> No analysis has been performed for this game yet. Choose <strong>Analyze logs</strong> to scan available Proton logs.</div>;
   return <div className="diagnosis">
     <div className="diag-label-row"><strong>Log analysis</strong><DiagnosticBadge status={result.status}/></div>
-    {result.logPath ? <>
+    {result.logPath ? <details className="pm-update-details"><summary>Log file details</summary>
       <div className="diag-field"><span>Log location</span><code>{result.logPath}</code></div>
       <div className="diag-field"><span>Modified</span><span>{dateLabel(result.modifiedUnixSeconds)}</span></div>
       <div className="diag-field"><span>Size</span><span>{result.logSize == null ? 'Unknown' : `${(result.logSize / 1024).toFixed(1)} KiB`}</span></div>
-    </> : null}
+    </details> : null}
     {result.status === 'no-log' && <div className="capture-guide"><strong>Capture a Proton log</strong>
       <p>Open Steam → select the game → Properties → General → Launch Options. Add the following before the existing command (preserve any existing options), then launch the game again:</p>
       <code>PROTON_LOG=1 %command%</code>

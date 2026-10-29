@@ -15,6 +15,7 @@ import { AutoLogMonitor } from './AutoLogMonitor';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
 import { PagedList } from './PagedList';
+import { GameDetailTabs } from './GameDetailTabs';
 import { GameIcon } from './GameIcon';
 import { LaunchTest } from './LaunchTest';
 import programLogo from './assets/proton-medic-logo.webp';
@@ -218,17 +219,27 @@ export default function App() {
       {page === 'games' && <>
         <div className="pm-page-title"><div><h1>My Games</h1><p>Your installed Steam games, all in one place.</p></div><button className="pm-button pm-button-primary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={17} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div>
         {selectedGame ? <div className="pm-detail-view"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><div className="pm-selected-head"><GameIcon className="big" source={{ kind: 'steam', appId: selectedGame.appId, libraryPath: selectedGame.libraryPath }}/><div><h2>{selectedGame.name}</h2><span className="pm-game-subtitle">Steam App {selectedGame.appId}</span><div className="pm-detail-status"><StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/></div><p>{getIssue(selectedGame, selectedDiagnosis ?? undefined).note}</p></div></div>
+          <GameDetailTabs key={gameKey(selectedGame)} tabs={[
+            { id: 'diagnostics', label: 'Diagnostics', content: <>
           <div className="pm-section"><div className="pm-section-heading"><div><h2>What Proton Medic Found</h2><p>Existing logs are checked without changing your game.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/>{analyzing ? 'Checking...' : 'Analyze Again'}</button></div>
             {!selectedGame.installPathExists && <div className="pm-callout"><AlertTriangle size={18}/> Game install folder is missing. Check the Steam installation or mount the drive.</div>}
             <GameDiagnosis result={selectedDiagnosis}/>
           </div>
+            </> },
+            { id: 'proton', label: 'Proton', content: <>
           <ProtonAdvisor advice={advice?.games.find(a => a.appId === selectedGame.appId && a.libraryPath === selectedGame.libraryPath)} loading={advising}
             applying={autoBusy} message={autoMessage} onApply={() => void selectAutomatically(selectedGame.appId, selectedGame.libraryPath)}/>
+            </> },
+            { id: 'launch', label: 'Launch & repair', content: <>
+          <FixAndTest key={gameKey(selectedGame)} game={selectedGame}/>
           <LaunchTest key={gameKey(selectedGame)} game={selectedGame}/>
 
-          <FixAndTest key={gameKey(selectedGame)} game={selectedGame}/>
+            </> },
+            { id: 'backups', label: 'Backups & details', content: <>
           <details className="pm-section pm-technical"><summary>Advanced repairs and backups <ChevronDown size={17}/></summary><RepairTools key={gameKey(selectedGame)} game={selectedGame} onChanged={() => void scanGames()}/></details>
           <details className="pm-section pm-technical"><summary>Technical Details <ChevronDown size={17}/></summary><dl><dt>Install directory</dt><dd>{selectedGame.installPath}</dd><dt>Steam library</dt><dd>{selectedGame.libraryPath}</dd><dt>Proton prefix folder</dt><dd>{selectedGame.prefixPath} — {selectedGame.prefixExists ? 'present' : 'not found'}</dd><dt>Manifest</dt><dd>{selectedGame.manifestPath}</dd><dt>Build ID</dt><dd>{selectedGame.buildId ?? 'Unknown'}</dd><dt>Steam compatibility override</dt><dd>{selectedGame.configuredTool ?? 'Automatic / no override detected'}</dd></dl></details>
+            </> },
+          ]}/>
         </div> : <><div className="pm-game-toolbar"><label className="pm-search"><Search size={19}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search your games..." aria-label="Search games"/></label><select aria-label="Filter games" value={filter} onChange={e => setFilter(e.target.value as GameFilter)}><option value="all">All games</option><option value="issues">Needs attention</option><option value="missing">Folder missing</option><option value="prefix">Has Proton prefix</option></select><span>{visibleGames.length} games</span></div><section className="pm-section">{visibleGames.length ? <PagedList key={`${query}:${filter}`} items={visibleGames} render={game => <GameRow key={gameKey(game)} game={game} diagnostic={issueByGame.get(gameKey(game))} onClick={() => openGame(game)}/>}/> : <Empty title="No matching games" detail={scan?.games.length ? 'Change your search or filter.' : 'Select Scan Again to check your Steam libraries.'}/>}</section></>}
       </>}
 

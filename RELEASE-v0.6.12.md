@@ -5,6 +5,7 @@
 - Redesign the workspace with dark navy surfaces, restrained blue accents, consistent typography, and simpler spacing.
 - Replace the floating sidebar with a slimmer navigation rail while retaining the original logo.
 - Reorganize Home around a library overview, a compact status strip, and three clear actions.
+- Organize game details into keyboard-accessible Diagnostics, Proton, Launch & repair, and Backups & details tabs. Switching tabs preserves ongoing work. Keep log-file metadata behind a disclosure.
 - Use flatter game lists with compact status labels and fewer repeated descriptions. Full findings remain in each game's details.
 - Simplify Windows game controls and style the installer and existing-game choices as a single tab group.
 - Unify forms, notices, buttons, diagnostics, and advanced sections across the application.

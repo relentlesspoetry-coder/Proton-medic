@@ -180,6 +180,14 @@ input:disabled, select:disabled { opacity: .55; }
 .pm-selected-head p { font-size: 12px; color: var(--pm-muted); margin: 12px 0 0; max-width: 620px; }
 .pm-detail-status { margin-top: 12px; }
 
+/* Game detail navigation */
+.pm-detail-tabs { display: flex; flex-wrap: wrap; gap: 5px; padding-bottom: 14px; border-bottom: 1px solid var(--pm-border); }
+.pm-detail-tabs button { padding: 10px 15px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--pm-muted); font-size: 11px; }
+.pm-detail-tabs button:hover { color: #dbeaff; background: #ffffff05; }
+.pm-detail-tabs button[aria-selected=true] { background: #8bbfff12; border-color: #8bbfff20; color: #b8d7ff; }
+.pm-tab-panel { min-width: 0; padding-top: 1px; }
+.pm-tab-panel:focus-visible { outline: 2px solid var(--pm-accent); outline-offset: 4px; border-radius: var(--pm-radius); }
+
 /* Windows games and forms */
 .pm-windows-list { display: grid; gap: 16px; }
 .pm-windows-game { padding: 20px; border: 1px solid var(--pm-border-strong); border-radius: 12px; background: #0c172560; min-width: 0; }
