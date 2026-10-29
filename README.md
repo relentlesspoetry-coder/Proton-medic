@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.9 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.10 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -65,3 +65,4 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.8 changes](RELEASE-v0.6.8.md)
 - [v0.6.9 changes](RELEASE-v0.6.9.md)
 
+- [v0.6.10 changes](RELEASE-v0.6.10.md)

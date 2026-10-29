@@ -14,6 +14,7 @@ import { WindowsGames } from './WindowsGames';
 import { AutoLogMonitor } from './AutoLogMonitor';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
+import { PagedList } from './PagedList';
 import { GameIcon } from './GameIcon';
 import { LaunchTest } from './LaunchTest';
 import programLogo from './assets/proton-medic-logo.webp';
@@ -168,14 +169,15 @@ export default function App() {
     const issue = getIssue(g, issueByGame.get(gameKey(g)));
     return issue.tone === 'error' || issue.tone === 'warning';
   }), [scan, issueByGame]);
+  const problemKeys = useMemo(() => new Set(problems.map(gameKey)), [problems]);
   const visibleGames = useMemo(() => (scan?.games ?? []).filter(g => {
     const matches = !query.trim() || `${g.name} ${g.appId}`.toLowerCase().includes(query.trim().toLowerCase());
     if (!matches) return false;
-    if (filter === 'issues') return problems.some(p => gameKey(p) === gameKey(g));
+    if (filter === 'issues') return problemKeys.has(gameKey(g));
     if (filter === 'missing') return !g.installPathExists;
     if (filter === 'prefix') return g.prefixExists;
     return true;
-  }), [scan, query, filter, problems]);
+  }), [scan, query, filter, problemKeys]);
   const selectedGame = scan?.games.find(g => gameKey(g) === selectedKey) ?? null;
   const selectedDiagnosis = selectedGame ? issueByGame.get(gameKey(selectedGame)) ?? null : null;
   const openGame = (game: Game) => { setSelectedKey(gameKey(game)); setPage('games'); };
@@ -227,10 +229,10 @@ export default function App() {
           <FixAndTest key={gameKey(selectedGame)} game={selectedGame}/>
           <details className="pm-section pm-technical"><summary>Advanced repairs and backups <ChevronDown size={17}/></summary><RepairTools key={gameKey(selectedGame)} game={selectedGame} onChanged={() => void scanGames()}/></details>
           <details className="pm-section pm-technical"><summary>Technical Details <ChevronDown size={17}/></summary><dl><dt>Install directory</dt><dd>{selectedGame.installPath}</dd><dt>Steam library</dt><dd>{selectedGame.libraryPath}</dd><dt>Proton prefix folder</dt><dd>{selectedGame.prefixPath} — {selectedGame.prefixExists ? 'present' : 'not found'}</dd><dt>Manifest</dt><dd>{selectedGame.manifestPath}</dd><dt>Build ID</dt><dd>{selectedGame.buildId ?? 'Unknown'}</dd><dt>Steam compatibility override</dt><dd>{selectedGame.configuredTool ?? 'Automatic / no override detected'}</dd></dl></details>
-        </div> : <><div className="pm-game-toolbar"><label className="pm-search"><Search size={19}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search your games..." aria-label="Search games"/></label><select aria-label="Filter games" value={filter} onChange={e => setFilter(e.target.value as GameFilter)}><option value="all">All games</option><option value="issues">Needs attention</option><option value="missing">Folder missing</option><option value="prefix">Has Proton prefix</option></select><span>{visibleGames.length} games</span></div><section className="pm-section">{visibleGames.length ? <div className="pm-problem-list">{visibleGames.map(game => <GameRow key={gameKey(game)} game={game} diagnostic={issueByGame.get(gameKey(game))} onClick={() => openGame(game)}/>)}</div> : <Empty title="No matching games" detail={scan?.games.length ? 'Change your search or filter.' : 'Select Scan Again to check your Steam libraries.'}/>}</section></>}
+        </div> : <><div className="pm-game-toolbar"><label className="pm-search"><Search size={19}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search your games..." aria-label="Search games"/></label><select aria-label="Filter games" value={filter} onChange={e => setFilter(e.target.value as GameFilter)}><option value="all">All games</option><option value="issues">Needs attention</option><option value="missing">Folder missing</option><option value="prefix">Has Proton prefix</option></select><span>{visibleGames.length} games</span></div><section className="pm-section">{visibleGames.length ? <PagedList key={`${query}:${filter}`} items={visibleGames} render={game => <GameRow key={gameKey(game)} game={game} diagnostic={issueByGame.get(gameKey(game))} onClick={() => openGame(game)}/>}/> : <Empty title="No matching games" detail={scan?.games.length ? 'Change your search or filter.' : 'Select Scan Again to check your Steam libraries.'}/>}</section></>}
       </>}
 
-      {page === 'fixes' && <><div className="pm-page-title"><div><h1>Fixes</h1><p>Choose a game to inspect evidence and optional repair actions.</p></div></div><section className="pm-section"><div className="pm-section-heading"><div><h2>Games needing attention</h2><p>Review log findings before trying a repair. Automatic fixes follow the log-monitor setting.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/> Check logs again</button></div>{problems.length ? <div className="pm-problem-list">{problems.map(g => <GameRow key={gameKey(g)} game={g} diagnostic={issueByGame.get(gameKey(g))} onClick={() => openGame(g)}/>)}</div> : <Empty title="No problems identified yet" detail="You can still open My Games to view backup and repair options."/>}</section><div className="pm-callout"><ShieldCheck size={19}/><div><strong>Only approved changes</strong><p>Game data is archived instead of deleted. Close Steam before repairing or restoring. All backups remain on the same Steam library drive.</p></div></div></>}
+      {page === 'fixes' && <><div className="pm-page-title"><div><h1>Fixes</h1><p>Choose a game to inspect evidence and optional repair actions.</p></div></div><section className="pm-section"><div className="pm-section-heading"><div><h2>Games needing attention</h2><p>Review log findings before trying a repair. Automatic fixes follow the log-monitor setting.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/> Check logs again</button></div>{problems.length ? <PagedList items={problems} render={g => <GameRow key={gameKey(g)} game={g} diagnostic={issueByGame.get(gameKey(g))} onClick={() => openGame(g)}/>}/> : <Empty title="No problems identified yet" detail="You can still open My Games to view backup and repair options."/>}</section><div className="pm-callout"><ShieldCheck size={19}/><div><strong>Only approved changes</strong><p>Game data is archived instead of deleted. Close Steam before repairing or restoring. All backups remain on the same Steam library drive.</p></div></div></>}
 
       {page === 'system' && <><div className="pm-page-title"><div><h1>System Check</h1><p>Check whether your Linux system has the tools games need.</p></div><button className="pm-button pm-button-primary" disabled={probing} onClick={() => void checkVulkan()}><Monitor size={18}/>{probing ? 'Checking Vulkan...' : 'Check Vulkan'}</button></div>
         <section className="pm-section"><h2>Your system at a glance</h2>{!report ? <Empty title="System information isn't available yet" detail="Select Check Logs & System to inspect GPU and driver information."/> : <div className="pm-check-list"><CheckRow label="Linux system" detail={report.system.os} state="ok"/><CheckRow label="Kernel" detail={report.system.kernel} state="neutral"/><CheckRow label="CPU architecture" detail={report.system.arch} state="neutral"/><CheckRow label="Graphics devices" detail={`${report.system.gpuDevices.length} device(s) detected`} state={report.system.gpuDevices.length ? 'ok' : 'warning'}/><CheckRow label="Vulkan utility" detail={report.system.vulkaninfoPath ? 'vulkaninfo is available' : 'vulkaninfo was not found in PATH'} state={report.system.vulkaninfoPath ? 'ok' : 'warning'}/><CheckRow label="Vulkan driver manifests" detail={`${report.system.icdManifests.length} found in checked locations`} state={report.system.icdManifests.length ? 'ok' : 'warning'}/></div>}
@@ -240,12 +242,12 @@ export default function App() {
 
       {page === 'settings' && <div className="pm-page-title"><div><h1>Settings</h1><p>Manage automatic fixes and privacy.</p></div></div>}
       {page === 'settings' && autoMessage && <p className="pm-auto-message" role="status">{autoMessage}</p>}
+      <AutoLogMonitor enabled={autoMode} onToggle={toggleAutoMode} expanded={page === 'settings'}/>
       {page === 'settings' && <><section className="pm-section"><div className="pm-section-heading"><div><h2>Privacy & safety</h2><p>Game scans and logs stay on this computer.</p></div><ShieldCheck size={23} className="pm-green"/></div><p className="pm-lead">Scanning and log analysis are read-only. The optional repair tools only archive shader caches or compatibility prefixes after explicit confirmation. The original data is preserved in a backup on the same library drive. Close Steam before repairs or restores. Game diagnostics require no administrator access or telemetry. Checking for app updates contacts GitHub; installing a system package may ask for administrator approval.</p></section>
         <details className="pm-section pm-technical"><summary>Available Proton versions ({scan?.compatibilityTools.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.compatibilityTools.length ? scan.compatibilityTools.map(tool => <div className="pm-discovery" key={tool.path}><Layers size={18}/><div><strong>{tool.name}</strong><small>{tool.source} · {tool.path}</small></div></div>) : <p>No compatibility tools detected.</p>}</details>
         <details className="pm-section pm-technical"><summary>Steam libraries ({scan?.libraries.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.libraries.length ? scan.libraries.map(lib => <div className="pm-discovery" key={lib.path}><HardDrive size={18}/><div><strong>{lib.installKind} library</strong><small>{lib.path}</small></div></div>) : <p>No libraries found.</p>}</details>
         <details className="pm-section pm-technical"><summary>Scan warnings ({scan?.warnings.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.warnings.length ? scan.warnings.map((w,i) => <div key={i} className="pm-discovery"><AlertTriangle size={18}/><div>{w}</div></div>) : <p>No scan warnings.</p>}</details>
         </>}
-      <AutoLogMonitor enabled={autoMode} onToggle={toggleAutoMode} expanded={page === 'settings'}/>
     </main>
   </div>;
 }

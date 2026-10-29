@@ -324,6 +324,9 @@ pre { overflow-wrap: anywhere; }
 .pm-removed-games { display: grid; gap: 10px; margin-top: 12px; }
 .pm-removed-game { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .pm-removed-game>span { min-width: 0; overflow-wrap: anywhere; }
+.pm-pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.pm-pagination span { color: var(--pm-muted, #a4b7cf); font-size: 13px; }
+
 @media(max-width:680px) {
   .pm-selected-head { gap:14px }
   .pm-game-image.big { width:85px;height:95px }

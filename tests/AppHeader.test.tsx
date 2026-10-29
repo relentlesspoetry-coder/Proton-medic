@@ -32,3 +32,9 @@ it('shows the installed version and keeps a header update check alive across nav
   expect(screen.getAllByRole('button', {name: 'Check for updates'})).toHaveLength(1);
   expect(check).toHaveBeenCalledTimes(1);
 });
+it('places automatic fix controls before privacy and technical sections in Settings',async()=>{
+ render(<App/>);fireEvent.click(screen.getByRole('button',{name:'Settings',exact:true}));
+ const monitor=screen.getByRole('region',{name:'Automatic game log reader'});
+ expect(monitor.compareDocumentPosition(screen.getByText('Privacy & safety')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+});

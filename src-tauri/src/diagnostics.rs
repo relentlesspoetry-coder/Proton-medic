@@ -27,7 +27,7 @@ pub struct Finding {
     pub evidence: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameDiagnostics {
     pub app_id: String,
@@ -41,7 +41,7 @@ pub struct GameDiagnostics {
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticsReport {
     pub games: Vec<GameDiagnostics>,
@@ -49,7 +49,7 @@ pub struct DiagnosticsReport {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemInfo {
     pub os: String,
@@ -61,7 +61,7 @@ pub struct SystemInfo {
     pub notes: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VulkanProbe {
     pub status: String, // available, unavailable, timeout, failed

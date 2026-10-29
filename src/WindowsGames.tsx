@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { Download, Monitor, Play, Plus, RefreshCw, Search, Pencil, Trash2 } from 'lucide-react';
 import type { Finding } from './types';
+import { PagedList } from './PagedList';
 import { GameIcon } from './GameIcon';
 interface LogReport { findings: Finding[]; logs: { name: string; status: string; truncated: boolean }[] }
 interface Runtime { id: string; name: string; kind: string }
@@ -32,7 +33,7 @@ export function WindowsGames() {
     const request = ++sequence.current;
     const next = await invoke<Library>('list_windows_games');
     if (request !== sequence.current) return;
-    setLibrary(next); setLoaded(true);
+    setLibrary(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); setLoaded(true);
     setRuntime(current => next.runtimes.some(r => r.id === current) ? current : next.runtimes[0]?.id ?? '');
   }, []);
   useEffect(() => {
@@ -79,7 +80,7 @@ export function WindowsGames() {
     <section className="pm-section" aria-label="Managed Windows games">
       <div className="pm-section-heading"><div><h2>Your Windows games</h2><p>Choose a game to launch, rename, or manage.</p></div></div>
       {!library.games.length && <p>{loaded ? 'No Windows games have been added yet.' : 'Loading Windows games…'}</p>}
-      <div className="pm-windows-list">{library.games.map(game => <WindowsGameCard key={game.id} game={game} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>)}</div>
+      <PagedList className="pm-windows-list" items={library.games} render={game => <WindowsGameCard key={game.id} game={game} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
       {!!library.removedGames?.length && <details className="pm-update-details"><summary>Removed games ({library.removedGames.length})</summary><p>Game files and prefixes are kept. Restore a game to show it in this list again.</p><div className="pm-removed-games">{library.removedGames.map(game => <div className="pm-removed-game" key={game.id}><span>{game.name}</span><button disabled={busy || isRunning(game)} className="pm-button pm-button-secondary" onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: false, confirmed: true }); await refresh(); })}>Restore {game.name}</button></div>)}</div></details>}
 
     </section>

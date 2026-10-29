@@ -9,7 +9,7 @@ use std::path::{Component, Path, PathBuf};
 const MAX_VDF_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_VDF_DEPTH: usize = 24;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanReport {
     pub installations: Vec<SteamInstallation>,
@@ -19,14 +19,14 @@ pub struct ScanReport {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteamInstallation {
     pub kind: String,
     pub path: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteamLibrary {
     pub path: String,
@@ -34,7 +34,7 @@ pub struct SteamLibrary {
     pub install_kind: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Game {
     pub app_id: String,
@@ -49,7 +49,7 @@ pub struct Game {
     pub configured_tool: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompatibilityTool {
     pub name: String,

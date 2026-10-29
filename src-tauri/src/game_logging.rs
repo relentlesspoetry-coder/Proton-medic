@@ -140,8 +140,9 @@ pub fn prepare(app:String,library:String,confirmed:bool)->Result<Status,String>{
     records.insert(key,Record{target:path,status:status.clone(),before,after});Ok(status)
 }
 pub fn process_pending(){
-    if repairs::require_steam_closed().is_err(){return;}
     let Ok(mut records)=REQUESTS.try_lock() else{return};
+    if !records.values().any(|r|r.status.state=="waiting-for-steam"){return;}
+    if repairs::require_steam_closed().is_err(){return;}
     for ((app,library),record) in records.iter_mut().filter(|(_,r)|r.status.state=="waiting-for-steam").take(1){
         let result=(||{
             let _guard=auto_select::CONFIG_LOCK.lock().map_err(|_|"Config lock unavailable")?;

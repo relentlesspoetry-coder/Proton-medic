@@ -16,7 +16,7 @@ export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled
       try {
         const next = await invoke<Update[]>('monitor_game_logs', { enabled });
         if (stopped) return;
-        setUpdates(next); setError('');
+        setUpdates(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); setError('');
         for (const item of next) {
           if (!item.session || delivered.current.has(item.session.sessionId)) continue;
           try {

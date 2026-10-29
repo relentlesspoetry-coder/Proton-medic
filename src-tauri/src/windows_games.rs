@@ -60,11 +60,11 @@ fn view(dir:&Path,r:Record,active:bool)->Game{
         log_directory:r.run_id.filter(|id|valid_id(id)).map(|id|dir.join("logs").join(id).to_string_lossy().into())}
 }
 fn executable(path:&Path)->Option<PathBuf>{let p=fs::canonicalize(path).ok()?;let m=fs::metadata(&p).ok()?;if m.is_file() && m.permissions().mode()&0o111!=0{Some(p)}else{None}}
-pub fn runtimes()->Vec<Runtime>{
+pub fn runtimes()->Vec<Runtime>{ discover_runtimes(&scanner::scan()) }
+fn discover_runtimes(scan:&scanner::ScanReport)->Vec<Runtime>{
     let mut out=vec![];let mut seen=HashSet::new();
     if let Some(path)=std::env::var_os("PATH") {for name in ["wine","wine64"] {if let Some(p)=std::env::split_paths(&path).filter(|p|p.is_absolute()).find_map(|dir|executable(&dir.join(name))){if seen.insert(p.clone()){out.push(Runtime{id:format!("wine:{}",p.display()),name:format!("System {name}"),kind:"wine".into(),binary:p,steam:None});}}}}
     if let Some(p)=executable(Path::new("/usr/lib/wine/wine64")){if seen.insert(p.clone()){out.push(Runtime{id:format!("wine:{}",p.display()),name:"System Wine64".into(),kind:"wine".into(),binary:p,steam:None});}}
-    let scan=scanner::scan();
     for tool in &scan.compatibility_tools {
         let path=Path::new(&tool.path);
         // Flatpak runtimes must run inside their container; do not execute them on the host.
@@ -104,38 +104,43 @@ fn checked_exe(dir:&Path,record:&Record,path:&Path)->Result<PathBuf,String>{
 fn command(r:&Runtime,dir:&Path,exe:&Path,logs:&Path)->Command{
     command_with_prefix(r,dir,&dir.join("compatdata/pfx"),exe,logs)
 }
-fn command_with_prefix(r:&Runtime,dir:&Path,prefix:&Path,exe:&Path,logs:&Path)->Command{
+fn command_with_prefix(r:&Runtime,dir:&Path,prefix:&Path,exe:&Path,_logs:&Path)->Command{
+    use std::os::unix::process::CommandExt;
     let mut cmd=crate::font_runtime::child_command(&r.binary);if r.kind=="proton"{cmd.arg("run");}
     cmd.arg(exe).current_dir(exe.parent().unwrap_or(dir)).env("WINEPREFIX",prefix)
-        .env("STEAM_COMPAT_DATA_PATH",prefix.parent().unwrap_or(dir)).env("PROTON_LOG","1").env("PROTON_LOG_DIR",logs)
+        .env("STEAM_COMPAT_DATA_PATH",prefix.parent().unwrap_or(dir)).env("PROTON_LOG","0").env_remove("PROTON_LOG_DIR")
+        .env("DXVK_LOG_LEVEL","warn").env("DXVK_NVAPI_LOG_LEVEL","warn").env("VKD3D_DEBUG","warn").env("VKD3D_SHADER_DEBUG","warn")
         .env_remove("WINEARCH").env("WINEDEBUG","-all,+err,+warn").env("SteamAppId","0").env("SteamGameId","0")
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.process_group(0);
     if let Some(steam)=&r.steam{cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH",steam);}cmd
 }
-fn capture(mut input:impl Read,mut output:File)->std::io::Result<()> {
-    const LIMIT:usize=2*1024*1024;
-    let mut tail=std::collections::VecDeque::with_capacity(LIMIT);let mut buf=[0u8;8192];let mut since_flush=0;
-    loop {let n=input.read(&mut buf)?;if n==0{output.seek(SeekFrom::Start(0))?;let(a,b)=tail.as_slices();output.write_all(a)?;output.write_all(b)?;output.set_len(tail.len() as u64)?;break;}
-        let discard=(tail.len()+n).saturating_sub(LIMIT);tail.drain(..discard);tail.extend(&buf[..n]);
-        since_flush+=n;if since_flush<256*1024 {continue;}since_flush=0;
-        output.seek(SeekFrom::Start(0))?;let (a,b)=tail.as_slices();output.write_all(a)?;output.write_all(b)?;output.set_len(tail.len() as u64)?;
-    } output.sync_all()
+fn locked_record(dir:&Path,previous:&Record,runtime:&Runtime,exe:&Path,install:bool)->Result<Record,String>{
+    let (_,fresh)=load(dir.parent().ok_or("Profile root unavailable")?,&previous.id)?;
+    require_idle(&fresh)?;
+    if fresh.runtime_id!=previous.runtime_id || fresh.prefix_path!=previous.prefix_path || fresh.game_exe!=previous.game_exe || fresh.installer!=previous.installer {
+        return Err("Game launch settings changed. Refresh and launch again.".into());
+    }
+    // Preserve metadata edits made before acquiring the profile lock.
+    if !install { checked_exe(dir,&fresh,exe)?; }
+    if runtime.id!=fresh.runtime_id { return Err("Runtime changed before launch".into()); }
+    Ok(fresh)
 }
 fn lock_profile(dir:&Path)->Result<File,String>{
     let file=OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(dir.join("profile.lock")).map_err(|e|e.to_string())?;
     file.try_lock().map_err(|_|"Another Proton Medic instance is changing this profile")?;Ok(file)
 }
-fn spawn(dir:PathBuf,mut record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<Game,String>{
+fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<Game,String>{
     let mut jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;
     if jobs.contains(&record.id){return Err("This game's installer or game is already running in this app session".into());}
     let _profile_lock=lock_profile(&dir)?;
-    let (_,fresh)=load(dir.parent().ok_or("Profile root unavailable")?,&record.id)?;require_idle(&fresh)?;
+    let mut record=locked_record(&dir,&record,&r,&exe,install)?;
     if jobs.len()>=4{return Err("Close an installer/game before starting more (four active jobs maximum)".into());}
     let run=stamp()?;let log_root=dir.join("logs");directory(&log_root,true)?;let logs=log_root.join(&run);directory(&logs,true)?;
     if record.prefix_path.is_none(){for p in [dir.join("compatdata"),dir.join("compatdata/pfx")]{directory(&p,true)?;}}
     let prefix=prefix_path(&dir,&record);directory(&prefix,false)?;
-    let stdout=OpenOptions::new().write(true).create_new(true).mode(0o600).open(logs.join("stdout.log")).map_err(|e|e.to_string())?;
-    let stderr=OpenOptions::new().write(true).create_new(true).mode(0o600).open(logs.join("stderr.log")).map_err(|e|e.to_string())?;
+    let stdout=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stdout.log")).map_err(|e|e.to_string())?;
+    let stderr=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stderr.log")).map_err(|e|e.to_string())?;
     record.boot_id=boot_id();record.run_id=Some(run);record.exit_code=None;record.state=if install{"installer-running"}else{"game-running"}.into();
     record.message=if install{"Complete the setup window, then select the installed game executable."}else{"Game started."}.into();save(&dir,&record)?;
     let child=command_with_prefix(&r,&dir,&prefix,&exe,&logs).spawn();
@@ -144,8 +149,7 @@ fn spawn(dir:PathBuf,mut record:Record,r:Runtime,exe:PathBuf,install:bool)->Resu
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);
     std::thread::spawn(move||{
         let _profile_lock_guard=_profile_lock;
-        let a=std::thread::spawn(move||capture(out,stdout));let b=std::thread::spawn(move||capture(err,stderr));
-        let status=child.wait();let capture_ok=[a.join(),b.join()].into_iter().all(|r|matches!(r,Ok(Ok(()))));
+        let (status,capture_ok)=crate::runtime_session::supervise(child,out,err,stdout,stderr);
         record.exit_code=status.as_ref().ok().and_then(|s|s.code());
         record.state=if status.as_ref().is_ok_and(|s|s.success()){if install{"installer-exited"}else{"game-exited"}}else{"process-failed"}.into();
         record.message=if install{"Setup process ended. Select the installed game executable to continue."}else{"Game process ended."}.into();
@@ -154,7 +158,7 @@ fn spawn(dir:PathBuf,mut record:Record,r:Runtime,exe:PathBuf,install:bool)->Resu
         if let Ok(mut jobs)=JOBS.lock(){if persist_completion(&dir,&record).is_ok(){jobs.remove(&record.id);}}
     });Ok(result)
 }
-pub fn list()->Result<Library,String>{list_in(root()?,runtimes())}
+pub fn list()->Result<Library,String>{list_in(root()?,discover_runtimes(&crate::inventory::steam()))}
 fn list_in(root:PathBuf,available_runtimes:Vec<Runtime>)->Result<Library,String>{
     let mut jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;let mut games=vec![];let mut removed_games=vec![];let mut warnings=vec![];
     let mut pending=UNSAVED.lock().map_err(|_|"Completion receipt lock unavailable")?;
@@ -368,9 +372,9 @@ mod tests{
         let cmd=command(&r,Path::new("/managed/123"),Path::new("/Downloads/Game Setup.exe"),Path::new("/managed/123/logs/1"));
         assert_eq!(cmd.get_args().collect::<Vec<_>>(),vec![std::ffi::OsStr::new("run"),std::ffi::OsStr::new("/Downloads/Game Setup.exe")]);
         let vars:HashMap<_,_>=cmd.get_envs().collect();assert_eq!(vars[std::ffi::OsStr::new("WINEPREFIX")],Some(std::ffi::OsStr::new("/managed/123/compatdata/pfx")));
-        assert_eq!(vars[std::ffi::OsStr::new("PROTON_LOG")],Some(std::ffi::OsStr::new("1")));
+        assert_eq!(vars[std::ffi::OsStr::new("PROTON_LOG")],Some(std::ffi::OsStr::new("0")));
     }
-    #[test] fn output_capture_is_bounded(){let f=Fixture::new();let file=f.0.join("log");capture(std::io::Cursor::new(vec![b'x';3*1024*1024]),File::create(&file).unwrap()).unwrap();assert_eq!(fs::metadata(file).unwrap().len(),2*1024*1024);}
+    #[test] fn output_capture_is_bounded(){let f=Fixture::new();let file=f.0.join("log");crate::runtime_session::capture_fixture(std::io::Cursor::new(vec![b'x';3*1024*1024]),OpenOptions::new().read(true).write(true).create_new(true).open(&file).unwrap()).unwrap();assert_eq!(fs::metadata(file).unwrap().len(),2*1024*1024);}
     #[test] fn fake_runtime_executes_installer_protocol_and_persists_exit(){
         let f=Fixture::new();let id=stamp().unwrap();let dir=f.0.join(&id);directory(&dir,true).unwrap();let exe=f.0.join("Setup With Spaces.exe");pe(&exe);
         let fake=f.0.join("fake-wine");fs::write(&fake,"#!/bin/sh\nmkdir -p \"$WINEPREFIX/drive_c/Game\"\ncp \"$1\" \"$WINEPREFIX/drive_c/Game/game.exe\"\nprintf 'unhandled exception fixture\\n' >&2\nexit 7\n").unwrap();fs::set_permissions(&fake,fs::Permissions::from_mode(0o700)).unwrap();
@@ -385,7 +389,7 @@ mod tests{
     #[test] fn missing_runtime_is_recorded_as_failure_without_claiming_installation(){
         let f=Fixture::new();let id=stamp().unwrap();let dir=f.0.join(&id);directory(&dir,true).unwrap();let exe=f.0.join("setup.exe");pe(&exe);
         let r=Runtime{id:"none".into(),name:"Missing".into(),kind:"wine".into(),binary:f.0.join("absent"),steam:None};
-        save(&dir,&record(&id)).unwrap();let result=spawn(dir,record(&id),r,exe,true).unwrap();assert_eq!(result.state,"start-failed");assert!(result.game_exe.is_none());assert!(load(&f.0,&id).is_ok());
+        let mut rec=record(&id);rec.runtime_id="none".into();save(&dir,&rec).unwrap();let result=spawn(dir,rec,r,exe,true).unwrap();assert_eq!(result.state,"start-failed");assert!(result.game_exe.is_none());assert!(load(&f.0,&id).is_ok());
     }
     #[test] fn unknown_persisted_runs_are_blocked_until_a_proven_reboot(){
         let mut r=record("123");r.state="game-running".into();assert!(require_idle(&r).is_err());
@@ -394,7 +398,7 @@ mod tests{
     }
     #[test] fn tail_capture_preserves_late_failure(){
         let f=Fixture::new();let p=f.0.join("tail");let mut data=vec![b'x';3*1024*1024];data.extend_from_slice(b"late crash marker");
-        capture(std::io::Cursor::new(data),File::create(&p).unwrap()).unwrap();
+        crate::runtime_session::capture_fixture(std::io::Cursor::new(data),OpenOptions::new().read(true).write(true).create_new(true).open(&p).unwrap()).unwrap();
         let bytes=fs::read(p).unwrap();assert_eq!(bytes.len(),2*1024*1024);assert!(bytes.ends_with(b"late crash marker"));
     }
     #[test] fn failed_completion_save_retains_receipt_for_retry(){
@@ -466,6 +470,22 @@ mod tests{
         fs::write(dir.join("game-icon.png"),b"stale image").unwrap();assert!(icon_path_in(&f.0,id).is_none());
         let source:IconSource=serde_json::from_slice(&fs::read(dir.join("game-icon-source.json")).unwrap()).unwrap();assert!(!source.found);
         fs::remove_file(exe).unwrap();assert!(icon_path_in(&f.0,id).is_none());
+    }
+
+    #[test] fn launch_uses_latest_locked_name_and_hidden_state() {
+        let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();
+        let previous=record(id);let mut latest=previous.clone();latest.name="Renamed".into();latest.hidden=true;save(&dir,&latest).unwrap();
+        let rt=Runtime{id:"fixture".into(),name:"Fixture".into(),kind:"wine".into(),binary:PathBuf::from("/fixture"),steam:None};
+        let _lock=lock_profile(&dir).unwrap();let fresh=locked_record(&dir,&previous,&rt,Path::new("/setup.exe"),true).unwrap();
+        assert_eq!(fresh.name,"Renamed");assert!(fresh.hidden);
+    }
+    #[test] fn launch_stops_if_executable_runtime_or_prefix_changed_before_lock() {
+        let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let previous=record(id);
+        let rt=Runtime{id:"fixture".into(),name:"Fixture".into(),kind:"wine".into(),binary:PathBuf::from("/fixture"),steam:None};
+        for mut latest in [previous.clone(),previous.clone(),previous.clone()] .into_iter().enumerate() {
+            match latest.0 {0=>latest.1.game_exe=Some("/different.exe".into()),1=>latest.1.runtime_id="new".into(),_=>latest.1.prefix_path=Some("/new/pfx".into())}
+            save(&dir,&latest.1).unwrap();assert!(locked_record(&dir,&previous,&rt,Path::new("/setup.exe"),true).unwrap_err().contains("settings changed"));
+        }
     }
 
 }

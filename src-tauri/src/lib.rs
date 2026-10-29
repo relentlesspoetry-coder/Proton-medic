@@ -7,6 +7,8 @@ fn startup_diagnostic(message:String){
 }
 mod font_runtime;
 mod scanner;
+mod inventory;
+mod runtime_session;
 mod workflow;
 mod log_monitor;
 mod game_logging;
@@ -19,7 +21,7 @@ mod launch_test;
 
 #[tauri::command]
 async fn scan_steam() -> Result<scanner::ScanReport, String> {
-    tauri::async_runtime::spawn_blocking(||{let scan=scanner::scan();game_icons::remember_steam(&scan);scan})
+    tauri::async_runtime::spawn_blocking(||{let scan=inventory::refresh();game_icons::remember_steam(&scan);(*scan).clone()})
         .await
         .map_err(|error| format!("Scanner thread failed: {error}"))
 }
@@ -27,8 +29,8 @@ async fn scan_steam() -> Result<scanner::ScanReport, String> {
 #[tauri::command]
 async fn analyze_diagnostics() -> Result<diagnostics::DiagnosticsReport, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let scanned = scanner::scan();
-        diagnostics::diagnose(&scanned)
+        let scanned = inventory::steam();
+        (*inventory::analysis(&scanned)).clone()
     }).await.map_err(|error| format!("Diagnostics worker failed: {error}"))
 }
 
@@ -62,8 +64,8 @@ async fn restore_repair(app_id: String, library_path: String, action: String, ba
 #[tauri::command]
 async fn recommend_proton() -> Result<advisor::AdvisorReport, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let scan = scanner::scan();
-        let report = diagnostics::diagnose(&scan);
+        let scan = inventory::steam();
+        let report = inventory::analysis(&scan);
         advisor::recommend(&scan, &report)
     }).await.map_err(|e| format!("Proton advisor worker failed: {e}"))
 }

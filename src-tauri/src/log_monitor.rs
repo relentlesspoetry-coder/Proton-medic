@@ -1,8 +1,8 @@
 //! Polling log monitor: metadata first, bounded analysis only after changes.
 //! Existing logs are a read-only baseline. One automatic attempt/game/app run.
-use crate::{advisor, diagnostics, repairs, scanner, workflow};
+use crate::{advisor, diagnostics, repairs, workflow};
 use serde::Serialize;
-use std::{collections::HashMap, path::PathBuf, sync::{LazyLock, Mutex}, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, sync::{LazyLock, Mutex}, time::{SystemTime, UNIX_EPOCH}};
 
 type Stamp = Vec<(PathBuf, u64, SystemTime)>;
 #[derive(Clone, Serialize)]
@@ -38,7 +38,7 @@ pub fn poll(enabled: bool) -> Result<Vec<Update>, String> {
     crate::game_logging::process_pending();
     let mut entries = ENTRIES.try_lock().map_err(|_| "Log monitor already checking")?;
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("Home directory unavailable")?);
-    let scan = scanner::scan();
+    let scan = crate::inventory::steam();
     let tools = advisor::installed_versions(&scan.compatibility_tools);
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
     let closed = !enabled || repairs::require_steam_closed().is_ok();
@@ -92,7 +92,8 @@ pub fn poll(enabled: bool) -> Result<Vec<Update>, String> {
         }
     }
     // Drop non-attempted records for libraries/games no longer present; retain receipts.
-    entries.retain(|(app,lib), e| e.attempted || scan.games.iter().any(|g| &g.app_id==app && &g.library_path==lib));
+    let live: HashSet<_> = scan.games.iter().map(|g| (g.app_id.clone(), g.library_path.clone())).collect();
+    entries.retain(|key, e| e.attempted || live.contains(key));
     let mut updates: Vec<_> = entries.values().filter(|e| !e.update.codes.is_empty() || e.changed || e.attempted).map(|e| e.update.clone()).collect();
     updates.sort_by(|a,b| a.game_name.cmp(&b.game_name).then(a.library_path.cmp(&b.library_path)).then(a.app_id.cmp(&b.app_id)));
     Ok(updates)

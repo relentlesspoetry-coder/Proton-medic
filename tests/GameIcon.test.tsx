@@ -31,3 +31,15 @@ it('requests Steam artwork without accepting remote image URLs',async()=>{
  invoke.mockResolvedValue('https://example.test/tracker.png');const view=render(<GameIcon source={{kind:'steam',appId:'123',libraryPath:'/Steam'}}/>);await act(async()=>{});
  expect(invoke).toHaveBeenCalledWith('get_steam_game_icon',{appId:'123',libraryPath:'/Steam'});expect(view.container.querySelector('img')).toBeNull();
 });
+it('defers artwork requests until the icon approaches the viewport',async()=>{
+ let observe!:(entries:{isIntersecting:boolean}[])=>void;
+ const disconnect=vi.fn();
+ vi.stubGlobal('IntersectionObserver',class { constructor(callback:typeof observe){observe=callback;} observe(){} disconnect=disconnect; });
+ try {
+  invoke.mockResolvedValue(uri);
+  const view=render(<GameIcon source={{kind:'steam',appId:'9',libraryPath:'/Steam'}}/>);
+  await act(async()=>{});expect(invoke).not.toHaveBeenCalled();
+  await act(async()=>{observe([{isIntersecting:true}]);});
+  expect(invoke).toHaveBeenCalledTimes(1);expect(view.container.querySelector('img')).toBeTruthy();expect(disconnect).toHaveBeenCalled();
+ } finally { vi.unstubAllGlobals(); }
+});
