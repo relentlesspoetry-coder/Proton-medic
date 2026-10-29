@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import signal
 import tempfile
 import time
 import unittest
@@ -14,6 +15,49 @@ parser = argparse.ArgumentParser()
 parser.add_argument('binary', type=Path)
 args = parser.parse_args()
 BINARY = args.binary.resolve()
+
+def process_identity(pid):
+    """Return state, parent and start ticks without confusing spaces in comm."""
+    fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
+    return fields[0], int(fields[1]), int(fields[19])
+
+def crash_fixture_parent(runtime_pid, launcher_pid, profile_root):
+    """Kill the PM parent inside our disposable launch, including AppImage wrappers."""
+    _, supervisor_pid, _ = process_identity(runtime_pid)
+    supervisor_args = Path(f'/proc/{supervisor_pid}/cmdline').read_bytes().split(b'\0')
+    if len(supervisor_args) < 2 or supervisor_args[1] != b'--supervise-runtime':
+        raise AssertionError('Fixture runtime is not owned by the expected supervisor')
+    _, parent_pid, _ = process_identity(supervisor_pid)
+    args = Path(f'/proc/{parent_pid}/cmdline').read_bytes().split(b'\0')
+    expected = [b'--launch-windows-game', b'123-456', b'--profile-root', os.fsencode(profile_root)]
+    if args[1:5] != expected:
+        raise AssertionError('Supervisor parent is not our disposable shortcut process')
+    identity = process_identity(parent_pid)
+    ancestor = parent_pid
+    seen = set()
+    while ancestor != launcher_pid:
+        if ancestor <= 1 or ancestor in seen:
+            raise AssertionError('Shortcut process is outside the disposable launcher tree')
+        seen.add(ancestor)
+        ancestor = process_identity(ancestor)[1]
+    # Pin the intended process; PID reuse cannot redirect the signal to another app.
+    descriptor = os.pidfd_open(parent_pid)
+    try:
+        if process_identity(parent_pid)[1:] != identity[1:]:
+            raise AssertionError('Shortcut parent changed while preparing fixture crash')
+        signal.pidfd_send_signal(descriptor, signal.SIGKILL)
+    finally:
+        os.close(descriptor)
+    deadline = time.monotonic()+10
+    while time.monotonic()<deadline:
+        try:
+            current = process_identity(parent_pid)
+        except FileNotFoundError:
+            return
+        if current[0] == 'Z' or current[2] != identity[2]:
+            return
+        time.sleep(0.02)
+    raise AssertionError('Disposable Proton Medic parent did not exit')
 
 class WindowsShortcutTests(unittest.TestCase):
     def setUp(self):
@@ -128,13 +172,12 @@ class WindowsShortcutTests(unittest.TestCase):
                 time.sleep(0.05)
             self.fail(message)
         try:
-            wait_for(self.receipt.exists, 'Disposable runtime did not start')
+            wait_for(lambda: self.receipt.exists() and self.receipt.read_text().strip(), 'Disposable runtime did not start')
             runtime_pid = int(self.receipt.read_text())
             initial = saved()
             logs = self.profile/'logs'/initial['runId']
             # Kill only the disposable application's parent, never its game/helper.
-            process.kill()
-            process.communicate(timeout=10)
+            crash_fixture_parent(runtime_pid, process.pid, self.root)
             os.kill(runtime_pid, 0)
             locks = [self.profile/'profile.lock', self.prefix/'.proton-medic.lock',
                      self.home/'data/proton-medic/locks/activity.lock']
@@ -175,8 +218,8 @@ class WindowsShortcutTests(unittest.TestCase):
             self.assertEqual(retry.returncode, 0, retry.stderr)
         finally:
             release.touch()
-            if process.poll() is None:
-                process.communicate(timeout=30)
+            # AppImage may keep wrapper pipes open until its extracted child exits.
+            process.communicate(timeout=30)
             # Give orphaned disposable helpers time to save before removing fixtures.
             deadline = time.monotonic()+10
             while saved()['state'].endswith('running') and time.monotonic()<deadline:
