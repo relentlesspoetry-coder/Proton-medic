@@ -209,7 +209,7 @@ mod tests {
                 games: vec![Game {app_id:"98765".into(), name:"Disposable Fixture".into(),
                     library_path:library_path.clone(),install_path:self.0.to_string_lossy().to_string(),
                     install_path_exists:true,manifest_path:String::new(),prefix_path:String::new(),
-                    prefix_exists:false,build_id:None,configured_tool:None}],
+                    prefix_exists:false,build_id:None,last_played_at:None,configured_tool:None}],
                 compatibility_tools:vec![],warnings:vec![] }
         }
     }

@@ -47,6 +47,7 @@ pub struct Game {
     pub prefix_exists: bool,
     pub build_id: Option<String>,
     pub configured_tool: Option<String>,
+    pub last_played_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -381,6 +382,7 @@ fn scan_home(home: &Path) -> ScanReport {
                 prefix_exists: prefix_path.is_dir(), prefix_path: display_path(&prefix_path),
                 build_id: text_get(state, "buildid").map(str::to_string),
                 configured_tool: overrides.get(app_id).cloned(),
+                last_played_at: played_timestamp(text_get(state, "LastPlayed")),
             });
         }
     }
@@ -392,6 +394,12 @@ fn scan_home(home: &Path) -> ScanReport {
         report.warnings.push("No supported Steam installation found in this user's home directory.".into());
     }
     report
+}
+
+fn played_timestamp(value: Option<&str>) -> Option<u64> {
+    let seconds=value?.parse::<u64>().ok()?;
+    let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    (seconds>=946684800 && seconds<=now).then_some(seconds.checked_mul(1000)?)
 }
 
 #[cfg(test)]
@@ -411,6 +419,10 @@ mod tests {
     }
     impl Drop for TestHome { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
 
+    #[test] fn last_played_dates_ignore_missing_zero_invalid_and_future_values(){
+        assert_eq!(played_timestamp(Some("1700000000")),Some(1700000000000));
+        for value in [None,Some("0"),Some("86400"),Some("-1"),Some("bad"),Some("18446744073709551615")]{assert_eq!(played_timestamp(value),None);}
+    }
     #[test]
     fn parse_vdf_quoted_escaped_comments_and_nested_values() {
         let vdf = "// comment\n\"AppState\" { \"name\" \"It's \\\"Working\\\"\" /* x */ \"buildid\" \"17\" }";
@@ -449,13 +461,15 @@ mod tests {
             root.display(), extra.display()
         )).unwrap();
         fs::write(root.join("steamapps/appmanifest_111.acf"),
-            "\"AppState\" { \"appid\" \"111\" \"name\" \"First Game\" \"installdir\" \"First Game\" }").unwrap();
+            "\"AppState\" { \"appid\" \"111\" \"name\" \"First Game\" \"installdir\" \"First Game\" \"LastPlayed\" \"1700000000\" }").unwrap();
         fs::write(extra.join("steamapps/appmanifest_222.acf"),
             "\"AppState\" { \"appid\" \"222\" \"name\" \"Second Game\" \"installdir\" \"Second Game\" }").unwrap();
         let result = scan_home(&home.0);
         assert_eq!(result.installations.len(), 1);
         assert_eq!(result.libraries.len(), 2);
         assert_eq!(result.games.len(), 2);
+        assert_eq!(result.games.iter().find(|g|g.app_id=="111").unwrap().last_played_at,Some(1700000000000));
+        assert_eq!(result.games.iter().find(|g|g.app_id=="222").unwrap().last_played_at,None);
         assert_eq!(result.compatibility_tools.len(), 1);
         assert!(result.games.iter().any(|g| g.app_id == "222" && g.prefix_exists && g.install_path_exists));
         assert!(result.games.iter().any(|g| g.app_id == "111" && !g.prefix_exists && !g.install_path_exists));

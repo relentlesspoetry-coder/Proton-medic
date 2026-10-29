@@ -12,10 +12,10 @@ use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{R
 pub struct Runtime { pub id:String, pub name:String, pub kind:String, #[serde(skip)] binary:PathBuf, #[serde(skip)] steam:Option<PathBuf> }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
-struct Record { id:String, name:String, runtime_id:String, installer:String, game_exe:Option<String>, state:String, exit_code:Option<i32>, message:String, run_id:Option<String>, #[serde(default)] boot_id:Option<String>, #[serde(default)] prefix_path:Option<String>, #[serde(default)] hidden:bool, #[serde(default)] launch_arguments:Vec<String>, #[serde(default)] working_directory:Option<String>, #[serde(default)] default_runtime_id:Option<String> }
+struct Record { id:String, name:String, runtime_id:String, installer:String, game_exe:Option<String>, state:String, exit_code:Option<i32>, message:String, run_id:Option<String>, #[serde(default)] boot_id:Option<String>, #[serde(default)] prefix_path:Option<String>, #[serde(default)] hidden:bool, #[serde(default)] launch_arguments:Vec<String>, #[serde(default)] working_directory:Option<String>, #[serde(default)] default_runtime_id:Option<String>, #[serde(default)] last_launched_at:Option<u64> }
 #[derive(Debug, Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct Game { pub id:String, pub name:String, pub runtime_id:String, pub game_exe:Option<String>, pub state:String, pub exit_code:Option<i32>, pub message:String, pub directory:String, pub windows_drive:String, pub prefix_directory:String, pub log_directory:Option<String>, pub launch_arguments:Vec<String>, pub working_directory:Option<String> }
+pub struct Game { pub id:String, pub name:String, pub runtime_id:String, pub game_exe:Option<String>, pub state:String, pub exit_code:Option<i32>, pub message:String, pub directory:String, pub windows_drive:String, pub prefix_directory:String, pub log_directory:Option<String>, pub launch_arguments:Vec<String>, pub working_directory:Option<String>, pub last_launched_at:Option<u64> }
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct Library { pub runtimes:Vec<Runtime>, pub games:Vec<Game>, pub removed_games:Vec<Game>, pub warnings:Vec<String> }
@@ -65,9 +65,10 @@ fn save(dir:&Path,r:&Record)->Result<(),String>{
 }
 fn load(root:&Path,id:&str)->Result<(PathBuf,Record),String>{let dir=profile_dir(root,id)?;let file=dir.join("profile.json");regular(&file,65536)?;let record:Record=serde_json::from_slice(&fs::read(file).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;if record.id!=id{return Err("Managed game identity mismatch".into());}Ok((dir,record))}
 fn view(dir:&Path,r:Record,active:bool)->Game{
+    let last_launched_at=r.last_launched_at.or_else(||history::latest_game_launch(dir,r.run_id.as_deref()));
     let prefix=prefix_path(dir,&r);
     let orphan=r.state.ends_with("running") && !active;let recovered=orphan && require_idle(&r).is_ok();
-    Game{id:r.id,name:r.name,runtime_id:r.runtime_id,game_exe:r.game_exe,state:if recovered{"interrupted".into()}else if orphan{"session-ended".into()}else{r.state},exit_code:r.exit_code,
+    Game{last_launched_at,id:r.id,name:r.name,runtime_id:r.runtime_id,game_exe:r.game_exe,state:if recovered{"interrupted".into()}else if orphan{"session-ended".into()}else{r.state},exit_code:r.exit_code,
         message:if recovered{"Previous run was interrupted by a system restart. You can select or launch the game again.".into()}else if orphan{"Previous process status is unknown. Restart Linux before reusing this profile. No game data will be deleted.".into()}else{r.message},directory:dir.to_string_lossy().into(),windows_drive:prefix.join("drive_c").to_string_lossy().into(),prefix_directory:prefix.to_string_lossy().into(),
         launch_arguments:r.launch_arguments,working_directory:r.working_directory,log_directory:r.run_id.filter(|id|valid_id(id)).map(|id|dir.join("logs").join(id).to_string_lossy().into())}
 }
@@ -197,11 +198,14 @@ fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<G
     let prefix=prefix_path(&dir,&record);directory(&prefix,false)?;
     let stdout=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stdout.log")).map_err(|e|e.to_string())?;
     let stderr=OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(logs.join("stderr.log")).map_err(|e|e.to_string())?;
+    let previous_launch=record.last_launched_at.or_else(||history::latest_game_launch(&dir,record.run_id.as_deref()));
+    record.last_launched_at=previous_launch;
+    if !install {record.last_launched_at=SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|d|d.as_millis() as u64);}
     record.boot_id=boot_id();record.run_id=Some(run);record.exit_code=None;record.state=if install{"installer-running"}else{"game-running"}.into();
     record.message=if install{"Complete the setup window, then select the installed game executable."}else{"Game started."}.into();
     history::begin(&logs,&record,&r,install)?;save(&dir,&record)?;
     let child=command_for_record(&r,&dir,&prefix,&exe,&logs,&record,install).spawn();
-    let mut child=match child{Ok(c)=>c,Err(e)=>{record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");persist_completion(&dir,&record)?;return Ok(view(&dir,record,false));}};
+    let mut child=match child{Ok(c)=>c,Err(e)=>{record.last_launched_at=previous_launch;record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");persist_completion(&dir,&record)?;return Ok(view(&dir,record,false));}};
     let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);
     std::thread::spawn(move||{
@@ -237,7 +241,7 @@ pub fn install(name:String,installer:String,runtime_id:String,confirmed:bool)->R
     if name.trim().is_empty() || name.len()>120 || name.chars().any(char::is_control){return Err("Enter a game name of 1–120 characters".into());}
     let exe=windows_exe(Path::new(&installer))?;let runtime=runtime(&runtime_id)?;let root=root()?;
     let id=stamp()?;let dir=root.join(&id);directory(&dir,true)?;
-    let record=Record{id,name:name.trim().into(),runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None};save(&dir,&record)?;
+    let record=Record{id,name:name.trim().into(),runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None};save(&dir,&record)?;
     spawn(dir,record,runtime,exe,true)
 }
 pub fn select_executable(id:String,path:String,confirmed:bool)->Result<Game,String>{
@@ -274,7 +278,7 @@ pub fn register(name:String,path:String,prefix:String,runtime_id:String,confirme
         }
     }
     let id=stamp()?;let dir=root.join(&id);directory(&dir,true)?;
-    let record=Record{id,name,runtime_id,installer:String::new(),game_exe:Some(exe.to_string_lossy().into()),state:"ready-to-test".into(),exit_code:None,message:"Existing game added. Launch it to test.".into(),run_id:None,boot_id:None,prefix_path:Some(prefix.to_string_lossy().into()),hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None};
+    let record=Record{id,name,runtime_id,installer:String::new(),game_exe:Some(exe.to_string_lossy().into()),state:"ready-to-test".into(),exit_code:None,message:"Existing game added. Launch it to test.".into(),run_id:None,boot_id:None,prefix_path:Some(prefix.to_string_lossy().into()),hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None};
     save(&dir,&record)?;Ok(view(&dir,record,false))
 }
 #[derive(Debug,Serialize)]
@@ -439,7 +443,7 @@ mod tests{
     impl Fixture{fn new()->Self{let p=std::env::temp_dir().join(format!("pm-exe-{}",stamp().unwrap()));fs::create_dir(&p).unwrap();Self(p)}}
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
     fn pe(path:&Path){let mut bytes=vec![0u8;256];bytes[..2].copy_from_slice(b"MZ");bytes[60..64].copy_from_slice(&128u32.to_le_bytes());bytes[128..132].copy_from_slice(b"PE\0\0");bytes[132..134].copy_from_slice(&0x8664u16.to_le_bytes());fs::write(path,bytes).unwrap();}
-    fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None}}
+    fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None}}
     #[test] fn validates_windows_pe_and_rejects_linux_and_truncated_files(){
         let f=Fixture::new();let exe=f.0.join("setup.exe");pe(&exe);assert!(windows_exe(&exe).is_ok());
         fs::write(&exe,b"#!/bin/sh\necho not windows").unwrap();assert!(windows_exe(&exe).is_err());

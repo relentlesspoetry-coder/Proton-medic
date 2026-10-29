@@ -11,6 +11,7 @@ import { GameDiagnosis } from './Diagnostics';
 import { RepairTools } from './Repairs';
 import { ProtonAdvisor } from './ProtonAdvisor';
 import { WindowsGames } from './WindowsGames';
+import { UnifiedLibrary, type LibraryFilter, type LibrarySource, type LibrarySort } from './UnifiedLibrary';
 import { AutoLogMonitor } from './AutoLogMonitor';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
@@ -21,7 +22,6 @@ import { LaunchTest } from './LaunchTest';
 import programLogo from './assets/proton-medic-logo.webp';
 
 type Page = 'windows' | 'home' | 'games' | 'fixes' | 'system' | 'settings';
-type GameFilter = 'all' | 'issues' | 'missing' | 'prefix';
 const MENU: { page: Page; label: string; icon: typeof Home }[] = [
   { page: 'home', label: 'Home', icon: Home },
   { page: 'games', label: 'My Games', icon: Gamepad2 },
@@ -66,7 +66,10 @@ export default function App() {
   const [autoMessage, setAutoMessage] = useState<string | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<GameFilter>('all');
+  const [filter, setFilter] = useState<LibraryFilter>('all');
+  const [librarySource,setLibrarySource]=useState<LibrarySource>('all');
+  const [librarySort,setLibrarySort]=useState<LibrarySort>('name');
+  const [selectedWindowsId,setSelectedWindowsId]=useState<string|undefined>();
   const taskId = useRef(0);
   const analysisId = useRef(0);
   const advisorId = useRef(0);
@@ -171,19 +174,11 @@ export default function App() {
     return issue.tone === 'error' || issue.tone === 'warning';
   }), [scan, issueByGame]);
   const problemKeys = useMemo(() => new Set(problems.map(gameKey)), [problems]);
-  const visibleGames = useMemo(() => (scan?.games ?? []).filter(g => {
-    const matches = !query.trim() || `${g.name} ${g.appId}`.toLowerCase().includes(query.trim().toLowerCase());
-    if (!matches) return false;
-    if (filter === 'issues') return problemKeys.has(gameKey(g));
-    if (filter === 'missing') return !g.installPathExists;
-    if (filter === 'prefix') return g.prefixExists;
-    return true;
-  }), [scan, query, filter, problemKeys]);
   const selectedGame = scan?.games.find(g => gameKey(g) === selectedKey) ?? null;
   const selectedDiagnosis = selectedGame ? issueByGame.get(gameKey(selectedGame)) ?? null : null;
-  const openGame = (game: Game) => { setSelectedKey(gameKey(game)); setPage('games'); };
-  const showProblems = () => { setSelectedKey(null); setQuery(''); setFilter('issues'); setPage('games'); };
-  const showAllGames = () => { setSelectedKey(null); setQuery(''); setFilter('all'); setPage('games'); };
+  const openGame = (game: Game) => { setSelectedWindowsId(undefined); setSelectedKey(gameKey(game)); setPage('games'); };
+  const showProblems = () => { setSelectedWindowsId(undefined); setLibrarySource('all'); setSelectedKey(null); setQuery(''); setFilter('issues'); setPage('games'); };
+  const showAllGames = () => { setSelectedWindowsId(undefined); setLibrarySource('all'); setSelectedKey(null); setQuery(''); setFilter('all'); setPage('games'); };
   const status = !scan ? 'Not scanned' : scan.installations.length ? 'Steam detected' : 'Steam not found';
 
   return <div className="pm-app">
@@ -199,7 +194,7 @@ export default function App() {
         <div className="pm-welcome"><div><h1>Your library.<br/><span>In good hands.</span></h1><p>Find your games, understand the issues, and choose what happens next.</p></div></div>
         <div className="pm-metrics">
           <div className="pm-metric steam"><div className="pm-metric-icon"><CheckCircle2 size={24}/></div><div><strong>{status}</strong><span>{scan?.installations[0]?.kind ?? 'Native or Flatpak'} Steam</span></div></div>
-          <div className="pm-metric"><div className="pm-metric-icon"><Gamepad2 size={25}/></div><div><strong className="pm-metric-number">{scan?.games.length ?? '—'}</strong><span>games found</span></div></div>
+          <div className="pm-metric"><div className="pm-metric-icon"><Gamepad2 size={25}/></div><div><strong className="pm-metric-number">{scan?.games.length ?? '—'}</strong><span>Steam games found</span></div></div>
           <div className="pm-metric"><div className="pm-metric-icon attention"><AlertCircle size={24}/></div><div><strong className="pm-metric-number pm-error-number">{scan && report ? problems.length : '—'}</strong><span>{analyzing ? 'checking logs...' : 'need attention'}</span></div></div>
           <div className="pm-metric"><div className="pm-metric-icon"><Clock3 size={24}/></div><div><strong>Last scan</strong><span>{lastScan ? lastScan.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Not yet'}</span></div></div>
         </div>
@@ -217,8 +212,8 @@ export default function App() {
 
       {page === 'windows' && <WindowsGames/>}
       {page === 'games' && <>
-        {!selectedGame && <div className="pm-page-title"><div><h1>My Games</h1><p>Your installed Steam games, all in one place.</p></div><button className="pm-button pm-button-primary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={17} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div>}
-        {selectedGame ? <div className="pm-detail-view"><div className="pm-detail-toolbar"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><button className="pm-button pm-button-secondary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={16} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div><div className="pm-selected-head"><GameIcon className="big" source={{ kind: 'steam', appId: selectedGame.appId, libraryPath: selectedGame.libraryPath }}/><div><h1>{selectedGame.name}</h1><span className="pm-game-subtitle">Steam App {selectedGame.appId}</span><div className="pm-detail-status"><StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/></div><p>{getIssue(selectedGame, selectedDiagnosis ?? undefined).note}</p></div></div>
+        {!selectedGame && !selectedWindowsId && <div className="pm-page-title"><div><h1>My Games</h1><p>Your Steam and Windows games, together.</p></div><button className="pm-button pm-button-primary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={17} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div>}
+        {selectedWindowsId ? <WindowsGames selectedId={selectedWindowsId} onBack={()=>setSelectedWindowsId(undefined)}/> : selectedGame ? <div className="pm-detail-view"><div className="pm-detail-toolbar"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><button className="pm-button pm-button-secondary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={16} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div><div className="pm-selected-head"><GameIcon className="big" source={{ kind: 'steam', appId: selectedGame.appId, libraryPath: selectedGame.libraryPath }}/><div><h1>{selectedGame.name}</h1><span className="pm-game-subtitle">Steam App {selectedGame.appId}</span><div className="pm-detail-status"><StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/></div><p>{getIssue(selectedGame, selectedDiagnosis ?? undefined).note}</p></div></div>
           <GameDetailTabs key={gameKey(selectedGame)} tabs={[
             { id: 'diagnostics', label: 'Diagnostics', content: <>
           <div className="pm-section"><div className="pm-section-heading"><div><h2>What Proton Medic Found</h2><p>Existing logs are checked without changing your game.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/>{analyzing ? 'Checking...' : 'Analyze Again'}</button></div>
@@ -240,7 +235,10 @@ export default function App() {
           <details className="pm-section pm-technical"><summary>Technical Details <ChevronDown size={17}/></summary><dl><dt>Install directory</dt><dd>{selectedGame.installPath}</dd><dt>Steam library</dt><dd>{selectedGame.libraryPath}</dd><dt>Proton prefix folder</dt><dd>{selectedGame.prefixPath} — {selectedGame.prefixExists ? 'present' : 'not found'}</dd><dt>Manifest</dt><dd>{selectedGame.manifestPath}</dd><dt>Build ID</dt><dd>{selectedGame.buildId ?? 'Unknown'}</dd><dt>Steam compatibility override</dt><dd>{selectedGame.configuredTool ?? 'Automatic / no override detected'}</dd></dl></details>
             </> },
           ]}/>
-        </div> : <><div className="pm-game-toolbar"><label className="pm-search"><Search size={19}/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search your games..." aria-label="Search games"/></label><select aria-label="Filter games" value={filter} onChange={e => setFilter(e.target.value as GameFilter)}><option value="all">All games</option><option value="issues">Needs attention</option><option value="missing">Folder missing</option><option value="prefix">Has Proton prefix</option></select><span>{visibleGames.length} games</span></div><section className="pm-section" aria-busy={loading}>{loading && !scan ? <Empty title="Loading your games" detail="Checking your Steam libraries. Your games will appear here."/> : visibleGames.length ? <PagedList key={`${query}:${filter}`} items={visibleGames} render={game => <GameRow key={gameKey(game)} game={game} diagnostic={issueByGame.get(gameKey(game))} onClick={() => openGame(game)}/>}/> : <Empty title="No matching games" detail={scan?.games.length ? 'Change your search or filter.' : 'Select Scan Again to check your Steam libraries.'}/>}</section></>}
+        </div> : <UnifiedLibrary steam={scan?.games??[]} steamLoading={loading} scanAvailable={!!scan} refreshKey={lastScan?.getTime()??0} problemKeys={problemKeys}
+          query={query} onQuery={setQuery} filter={filter} onFilter={setFilter} source={librarySource} onSource={setLibrarySource} sort={librarySort} onSort={setLibrarySort}
+          onSteam={openGame} onWindows={game=>{setSelectedKey(null);setSelectedWindowsId(game.id);}} steamStatus={game=><StatusTag {...getIssue(game,issueByGame.get(gameKey(game)))}/>}/>}
+
       </>}
 
       {page === 'fixes' && <><div className="pm-page-title"><div><h1>Fixes</h1><p>Choose a game to inspect evidence and optional repair actions.</p></div></div><section className="pm-section"><div className="pm-section-heading"><div><h2>Games needing attention</h2><p>Review log findings before trying a repair. Automatic fixes follow the log-monitor setting.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/> Check logs again</button></div>{problems.length ? <PagedList items={problems} render={g => <GameRow key={gameKey(g)} game={g} diagnostic={issueByGame.get(gameKey(g))} onClick={() => openGame(g)}/>}/> : <Empty title="No problems identified yet" detail="You can still open My Games to view backup and repair options."/>}</section><div className="pm-callout"><ShieldCheck size={19}/><div><strong>Only approved changes</strong><p>Game data is archived instead of deleted. Close Steam before repairing or restoring. All backups remain on the same Steam library drive.</p></div></div></>}

@@ -179,7 +179,7 @@ mod tests {
         Game { app_id: "555".into(), name: "Fixture Game".into(), library_path: "/tmp/Steam".into(),
             install_path: "/tmp/Steam/common/Fixture".into(), install_path_exists: true,
             manifest_path: "/tmp/Steam/appmanifest_555.acf".into(), prefix_path: "/tmp/Steam/compatdata/555/pfx".into(),
-            prefix_exists: false, build_id: None, configured_tool: None }
+            prefix_exists: false, build_id: None, last_played_at: None, configured_tool: None }
     }
     fn tools() -> Vec<CompatibilityTool> {
         ["Proton 9.0", "Proton 10.0", "Proton Experimental", "GE-Proton9-10"].iter()

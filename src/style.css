@@ -153,6 +153,12 @@ input:disabled, select:disabled, textarea:disabled { opacity: .55; }
 .pm-game-toolbar select { width: auto; max-width: 100%; font-size: 11px; }
 .pm-game-toolbar>span { color: var(--pm-faint); font-size: 11px; }
 .pm-problem-list { display: flex; flex-direction: column; }
+.pm-library-entry { display: grid; grid-template-columns: minmax(0,1fr) 44px; align-items: center; gap: 4px; border-bottom: 1px solid var(--pm-border); }
+.pm-library-entry:last-child { border-bottom: 0; }
+.pm-library-entry .pm-game-row { border-bottom: 0; }
+.pm-favorite { display: grid; place-items: center; width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--pm-muted); }
+.pm-favorite[aria-pressed=true], .pm-favorite:hover { color: var(--pm-accent); background: #8bbfff0a; }
+.pm-library-note { color: var(--pm-muted); font-size: 11px; margin-bottom: 16px; }
 .pm-game-row { display: grid; grid-template-columns: 44px minmax(0,1fr) auto 20px; align-items: center; gap: 16px; width: 100%; min-width: 0; min-height: 82px; text-align: left; color: #e1ebf9; padding: 16px 12px; background: transparent; border: 0; border-bottom: 1px solid var(--pm-border); }
 .pm-game-row:last-child { border-bottom: 0; }
 .pm-game-row:hover { background: #8bbfff06; border-radius: 9px; }

@@ -256,7 +256,7 @@ mod tests {
             fs::create_dir_all(root.join("steamapps/shadercache/111")).unwrap();
             Self(root)
         }
-        fn game(&self) -> Game { Game { app_id: "111".into(), name: "Fixture".into(), library_path: path_to_string(&self.0), install_path: String::new(), install_path_exists: true, manifest_path: String::new(), prefix_path: String::new(), prefix_exists: true, build_id: None, configured_tool: None } }
+        fn game(&self) -> Game { Game { app_id: "111".into(), name: "Fixture".into(), library_path: path_to_string(&self.0), install_path: String::new(), install_path_exists: true, manifest_path: String::new(), prefix_path: String::new(), prefix_exists: true, build_id: None, last_played_at: None, configured_tool: None } }
     }
     impl Drop for TestDir { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
     #[test] fn backup_name_validation_rejects_traversal_and_other_game() {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Download, Monitor, Play, Plus, RefreshCw, Search, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, Monitor, Play, Plus, RefreshCw, Search, Pencil, Trash2 } from 'lucide-react';
 import type { Finding } from './types';
 import { PagedList } from './PagedList';
 import { InstallationAssistant } from './InstallationAssistant';
@@ -11,15 +11,15 @@ import { LaunchHistory } from './LaunchHistory';
 import { ResourceMonitor } from './ResourceMonitor';
 interface LogReport { findings: Finding[]; logs: { name: string; status: string; truncated: boolean }[] }
 export interface Runtime { id: string; name: string; kind: string }
-export interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null; launchArguments?: string[]; workingDirectory?: string | null }
-interface Library { runtimes: Runtime[]; games: Game[]; removedGames?: Game[]; warnings: string[] }
+export interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null; launchArguments?: string[]; workingDirectory?: string | null; lastLaunchedAt?: number | null }
+export interface Library { runtimes: Runtime[]; games: Game[]; removedGames?: Game[]; warnings: string[] }
 interface ExecutableSearch { executables: string[]; truncated: boolean }
 const empty: Library = { runtimes: [], games: [], warnings: [] };
 const isRunning = (game: Game) => game.state.endsWith('running') || game.state === 'session-ended';
 const STATUS_LABELS: Record<string, string> = { 'installer-running': 'Installing', 'game-running': 'Running', 'installer-exited': 'Choose game executable', 'ready-to-test': 'Ready to launch', 'game-exited': 'Stopped', 'process-failed': 'Process failed', 'start-failed': 'Could not start', 'session-ended': 'Previous run needs attention', interrupted: 'Previous run interrupted' };
 const statusLabel = (game: Game) => STATUS_LABELS[game.state] ?? 'Setup needed';
 
-export function WindowsGames() {
+export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=>void}={}) {
   const [monitoredGame, setMonitoredGame] = useState<string|null>(null);
   const [library, setLibrary] = useState<Library>(empty);
   const [loaded, setLoaded] = useState(false);
@@ -84,20 +84,22 @@ export function WindowsGames() {
   });
   const switchMode = (next: 'install' | 'existing') => { setMode(next); setInstaller(''); setName(''); setPrefix(''); setApproved(false); };
 
+  const shownGames=selectedId?library.games.filter(game=>game.id===selectedId):library.games;
   return <>
-    <div className="pm-page-title"><div><h1>Windows Games</h1><p>Launch games with their saved Wine or Proton environment.</p></div><button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void run(refresh)}><RefreshCw size={17}/>Refresh</button></div>
+    {selectedId&&<button className="pm-back" onClick={onBack}><ArrowLeft size={17}/>Back to My Games</button>}
+    <div className="pm-page-title"><div><h1>{selectedId?shownGames[0]?.name??'Windows game':'Windows Games'}</h1><p>Launch games with their saved Wine or Proton environment.</p></div><button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void run(refresh)}><RefreshCw size={17}/>Refresh</button></div>
     {refreshError && <p role="alert" className="pm-repair-danger">{refreshError} Your saved games are unchanged. Use Refresh to try again.</p>}
     {error && <p role="alert" className="pm-repair-danger">{error}</p>}
     {notice && <p role="status" className="pm-auto-message">{notice}</p>}
     {library.warnings.map((warning, i) => <p key={i} role="alert" className="pm-repair-danger">{warning}</p>)}
     <section className="pm-section" aria-label="Managed Windows games">
-      <div className="pm-section-heading"><div><h2>Your Windows games</h2><p>Choose a game to launch, rename, or manage.</p></div></div>
-      {!library.games.length && <p role="status">{loaded ? 'No Windows games have been added yet.' : refreshError ? 'Windows game library unavailable.' : 'Loading Windows games…'}</p>}
-      <PagedList className="pm-windows-list" items={library.games} render={game => <WindowsGameCard key={game.id} monitoring={monitoredGame===game.id} onMonitor={enabled=>setMonitoredGame(enabled?game.id:null)} game={game} runtimes={library.runtimes} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
-      {!!library.removedGames?.length && <details className="pm-update-details"><summary>Removed games ({library.removedGames.length})</summary><p>Game files and prefixes are kept. Restore a game to show it in this list again.</p><div className="pm-removed-games">{library.removedGames.map(game => <div className="pm-removed-game" key={game.id}><span>{game.name}</span><button disabled={busy || isRunning(game)} className="pm-button pm-button-secondary" onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: false, confirmed: true }); await refresh(); })}>Restore {game.name}</button></div>)}</div></details>}
+      <div className="pm-section-heading"><div><h2>{selectedId?'Game controls':'Your Windows games'}</h2><p>Choose a game to launch, rename, or manage.</p></div></div>
+      {!shownGames.length && <p role="status">{loaded ? selectedId?'This game is no longer in the visible library. Return to My Games or restore it from Windows Games.':'No Windows games have been added yet.' : refreshError ? 'Windows game library unavailable.' : 'Loading Windows games…'}</p>}
+      <PagedList className="pm-windows-list" items={shownGames} render={game => <WindowsGameCard key={game.id} monitoring={monitoredGame===game.id} onMonitor={enabled=>setMonitoredGame(enabled?game.id:null)} game={game} runtimes={library.runtimes} busy={busy} run={run} remember={remember} refresh={refresh} notify={setNotice} forget={id => setLibrary(old => ({ ...old, games: old.games.filter(g => g.id !== id) }))}/>}/>
+      {!selectedId&&!!library.removedGames?.length && <details className="pm-update-details"><summary>Removed games ({library.removedGames.length})</summary><p>Game files and prefixes are kept. Restore a game to show it in this list again.</p><div className="pm-removed-games">{library.removedGames.map(game => <div className="pm-removed-game" key={game.id}><span>{game.name}</span><button disabled={busy || isRunning(game)} className="pm-button pm-button-secondary" onClick={() => void run(async () => { await invoke('set_windows_game_hidden', { id: game.id, hidden: false, confirmed: true }); await refresh(); })}>Restore {game.name}</button></div>)}</div></details>}
 
     </section>
-    <section className="pm-section" aria-label="Add Windows game">
+    {!selectedId&&<section className="pm-section" aria-label="Add Windows game">
       <div className="pm-windows-tabs" role="group" aria-label="Add game method">
         <button type="button" aria-pressed={mode === 'install'} className={`pm-button ${mode === 'install' ? 'pm-button-primary' : 'pm-button-secondary'}`} disabled={busy} onClick={() => switchMode('install')}><Download size={17}/>Install a new game</button>
         <button type="button" aria-pressed={mode === 'existing'} className={`pm-button ${mode === 'existing' ? 'pm-button-primary' : 'pm-button-secondary'}`} disabled={busy} onClick={() => switchMode('existing')}><Plus size={17}/>Add installed game</button>
@@ -118,7 +120,7 @@ export function WindowsGames() {
       <label className="pm-launch-consent"><input type="checkbox" checked={approved} disabled={busy} onChange={e => setApproved(e.target.checked)}/><span>{mode === 'install' ? 'I trust this installer and approve running it. Windows programs can access my user files.' : 'I trust this executable and approve using the selected runtime with its existing prefix.'}</span></label>
       <button className="pm-button pm-button-primary" disabled={busy || !approved || !installer || !name.trim() || !runtime || (mode === 'existing' && !prefix)} onClick={() => void submit()}><Download size={17}/>{busy ? 'Working…' : mode === 'install' ? 'Run installer' : 'Add game'}</button>
       <details className="pm-update-details"><summary>{mode === 'install' ? 'Installation help' : 'Which prefix should I use?'}</summary><p>{mode === 'install' ? 'Complete the installer’s setup window and keep Proton Medic open. When it finishes, select the installed game’s .exe in its card above. Files on other drives can be selected. An installer exit code alone does not confirm installation.' : 'Use the same prefix and runtime that previously ran the game. A new empty prefix will not contain its registry settings or installed dependencies. Adding a game saves a launcher profile without copying or reinstalling it.'}</p></details>
-    </section>
+    </section>}
   </>;
 }
 

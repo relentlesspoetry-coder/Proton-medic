@@ -131,3 +131,13 @@ it('successful background refreshes do not dismiss operation failures',async()=>
  await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
  expect(screen.getByRole('alert').textContent).toContain('Picker unavailable');
 });
+
+it('opens only the selected unified-library game while retaining its controls',async()=>{
+ const back=vi.fn();invoke.mockImplementation((command:string)=>Promise.resolve(command==='list_windows_games'?{runtimes:[runtime],games:[{...game,gameExe:'/game.exe'},{...game,id:'456',name:'Other game'}],warnings:[]}:null));
+ render(<WindowsGames selectedId="123" onBack={back}/>);await act(async()=>{});
+ expect(screen.getByRole('button',{name:'Launch game'})).toBeTruthy();expect(screen.getByText('Launch history')).toBeTruthy();expect(screen.getByRole('button',{name:'Monitor resources'})).toBeTruthy();expect(screen.queryByRole('heading',{name:'Other game'})).toBeNull();expect(screen.queryByRole('region',{name:'Add Windows game'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Back to My Games'}));expect(back).toHaveBeenCalledTimes(1);
+});
+it('explains when a selected game was removed from the visible library',async()=>{
+ invoke.mockResolvedValue({games:[],runtimes:[runtime],warnings:[]});render(<WindowsGames selectedId="123" onBack={()=>{}}/>);await act(async()=>{});expect(screen.getByText(/no longer in the visible library/)).toBeTruthy();
+});

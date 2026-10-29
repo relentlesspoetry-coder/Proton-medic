@@ -11,6 +11,7 @@ export interface Game {
   prefixExists: boolean;
   buildId: string | null;
   configuredTool?: string | null;
+  lastPlayedAt?: number | null;
 }
 export interface CompatibilityTool { name: string; path: string; source: string }
 export interface ScanReport {

@@ -108,6 +108,11 @@ pub(super) fn list_in(dir: &Path, record: &Record, active: bool) -> Result<Histo
     }
     Ok(History {entries, warnings: if unreadable > 0 {vec![format!("{unreadable} recent run record(s) could not be read. Existing logs are unchanged.")]} else {vec![]}})
 }
+pub(super) fn latest_game_launch(dir:&Path,run:Option<&str>)->Option<u64>{
+    let id=run.filter(|id|valid_id(id))?;let root=dir.join("logs");directory(&root,false).ok()?;
+    let entry=read(&root.join(id),id).ok()?;
+    (entry.kind=="game" && entry.state!="start-failed" && entry.started_at<=now().ok()?).then_some(entry.started_at)
+}
 pub fn list(id: String) -> Result<History, String> {
     let (dir, record) = load(&root()?, &id)?;
     let active = JOBS.lock().map_err(|_|"Process registry unavailable")?.contains(&id) || lock_profile(&dir).is_err();
@@ -127,6 +132,13 @@ pub fn list(id: String) -> Result<History, String> {
         }
     }
     impl Drop for Fixture {fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
+    #[test] fn recent_launch_fallback_excludes_installers_and_failed_starts(){
+        let f=Fixture::new();let mut r=f.begin("1-100");
+        assert!(latest_game_launch(&f.0,Some("1-100")).is_some());
+        r.state="start-failed".into();finish(&f.0,&r).unwrap();assert_eq!(latest_game_launch(&f.0,Some("1-100")),None);
+        let logs=f.0.join("logs/1-100");let mut entry=read(&logs,"1-100").unwrap();entry.kind="installer".into();entry.state="installer-exited".into();write(&logs,&entry).unwrap();
+        assert_eq!(latest_game_launch(&f.0,Some("1-100")),None);assert_eq!(latest_game_launch(&f.0,Some("../1")),None);
+    }
     #[test] fn latest_twenty_are_sorted_by_timestamp_and_older_logs_are_preserved() {
         let f=Fixture::new();
         for time in 1..=25 {f.begin(&format!("{}-{time}",100-time));}

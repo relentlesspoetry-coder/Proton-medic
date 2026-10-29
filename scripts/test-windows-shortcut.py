@@ -64,6 +64,8 @@ class WindowsShortcutTests(unittest.TestCase):
         saved = json.loads((self.profile/'profile.json').read_text())
         self.assertEqual(saved['state'], 'game-exited')
         self.assertEqual(saved['exitCode'], 0)
+        self.assertGreater(saved['lastLaunchedAt'], 0)
+        self.assertLessEqual(saved['lastLaunchedAt'], int(time.time()*1000))
         self.assertTrue((self.profile/'logs'/saved['runId']/'stderr.log').is_file())
         history = json.loads((self.profile/'logs'/saved['runId']/'history.json').read_text())
         self.assertEqual(history['id'], saved['runId'])
@@ -73,6 +75,17 @@ class WindowsShortcutTests(unittest.TestCase):
         self.assertGreaterEqual(history['endedAt'], history['startedAt'])
         self.assertTrue(history['runtime'])
         self.assertFalse((self.profile/'logs'/saved['runId']/'monitor-sample.json').exists())
+
+    def test_failed_runtime_start_keeps_the_previous_recent_game_date(self):
+        (self.home/'bin/wine').write_text('#!/missing-proton-medic-fixture-interpreter\n')
+        self.record['lastLaunchedAt'] = 1700000000000
+        self.save()
+        result = self.launch()
+        self.assertNotEqual(result.returncode, 0)
+        saved = json.loads((self.profile/'profile.json').read_text())
+        self.assertEqual(saved['state'], 'start-failed')
+        self.assertEqual(saved['lastLaunchedAt'], 1700000000000)
+        self.assertFalse(self.receipt.exists())
 
     def test_opt_in_monitor_includes_shortcut_child_processes(self):
         runtime = self.home / 'bin/wine'

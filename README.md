@@ -4,10 +4,11 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.17 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.18 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
+- Browse Steam and Windows games together in My Games, with source filters, saved favorites, and recently played sorting.
 - Find native and Flatpak Steam installations, game libraries, and installed Proton tools.
 - Analyze Proton logs and check Vulkan and system information.
 - Recommend installed compatibility tools based on game settings and log findings.
@@ -32,7 +33,7 @@ The update button appears at the top right on every page, with the installed ver
 
 ### Steam Deck / SteamOS
 
-1. Switch to **Desktop Mode** and download `proton-medic_0.6.17_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
+1. Switch to **Desktop Mode** and download `proton-medic_0.6.18_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
 2. Move it to a permanent folder such as `~/Applications`. Game shortcuts refer to this location.
 3. In Dolphin, open **Properties → Permissions**, enable **Is executable**, then open the AppImage.
 
@@ -41,7 +42,7 @@ GTK, WebKitGTK, and application fonts travel with the AppImage. No DEB installat
 If the system reports that FUSE is missing, run it without FUSE from Konsole:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.17_amd64.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.18_amd64.AppImage"
 ```
 
 The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35 or newer. Graphics drivers and the desktop session come from the operating system. Steam and an installed Proton or Wine runtime are required for their respective game-launching features; the application does not install or replace graphics drivers or game runtimes.
@@ -51,10 +52,18 @@ The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35
 Download the amd64 DEB and install it using a package manager so that dependencies are installed too:
 
 ```bash
-sudo apt install ./proton-medic_0.6.17_amd64.deb
+sudo apt install ./proton-medic_0.6.18_amd64.deb
 ```
 
 The DEB requires an Ubuntu 24.04-compatible x86_64 system with glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. Use the AppImage on SteamOS. Existing installations can check for signed updates in the app.
+
+## Unified library
+
+**My Games** combines scanned Steam games and visible Windows game profiles. Search both sources, filter by Steam or Windows, and use the star beside a game to save it as a favorite. Favorites are stored locally and remain separate for different installations and game sources.
+
+Choose **Recently played** to sort by available Steam manifest dates and recorded Windows game launches. Unknown dates appear last; installer runs and failed runtime starts do not replace a Windows game’s previous launch date. These dates describe recorded activity, not verified gameplay or playtime.
+
+Open a Steam game for diagnostics and repair tools, or a Windows game for its existing launch controls, settings, history, monitoring, and shortcuts. **Back to My Games** preserves the search, filters, and sorting. **Windows Games** remains available for installing, adding, and restoring profiles.
 
 ## Windows game launchers
 
@@ -112,3 +121,5 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.16 changes](RELEASE-v0.6.16.md)
 
 - [v0.6.17 changes](RELEASE-v0.6.17.md)
+
+- [v0.6.18 changes](RELEASE-v0.6.18.md)

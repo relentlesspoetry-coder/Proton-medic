@@ -23,11 +23,12 @@ let browser;
  const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  const fixture=()=>{
   const names=['Black Myth: Wukong','Hollow Knight','No Man’s Sky','Baldur’s Gate 3','Stardew Valley','ELDEN RING'];
-  const games=names.map((name,i)=>({name,appId:String(100+i),libraryPath:'/home/player/Games/SteamLibrary',installPath:'/home/player/Games/'+name,installPathExists:i!==2,manifestPath:'/home/player/Games/steamapps/appmanifest_'+i+'.acf',prefixPath:'/home/player/Games/compatdata/'+i,prefixExists:true,configuredTool:'GE-Proton10-34',buildId:'123456'}));
+  const games=names.map((name,i)=>({name,appId:String(100+i),libraryPath:'/home/player/Games/SteamLibrary',installPath:'/home/player/Games/'+name,installPathExists:i!==2,manifestPath:'/home/player/Games/steamapps/appmanifest_'+i+'.acf',prefixPath:'/home/player/Games/compatdata/'+i,prefixExists:true,configuredTool:'GE-Proton10-34',buildId:'123456',lastPlayedAt:1700000000000+i*1000}));
   const findings=[{code:'wine-exception',severity:'warning',title:'A Windows exception was recorded',description:'The runtime log contains an exception. Review the game and runtime settings before trying a repair.',recommendation:'Try a different installed Proton version after backing up your configuration.',evidence:['Unhandled exception in game process']}];
   const scan={games,installations:[{kind:'Native',path:'/home/player/.steam/steam'}],libraries:[{path:'/home/player/Games/SteamLibrary',steamAppsPath:'/home/player/Games/SteamLibrary/steamapps',installKind:'Native'}],compatibilityTools:[{name:'GE-Proton10-34',path:'/home/player/.steam/compatibilitytools.d/GE-Proton10-34',source:'User-installed'},{name:'Proton Experimental',path:'/Steam/Proton Experimental',source:'Steam'}],warnings:[]};
   const reports=games.map((g,i)=>({appId:g.appId,libraryPath:g.libraryPath,logPath:i===0?'/home/player/steam-100.log':null,logSize:32156,modifiedUnixSeconds:1700000000,truncated:false,status:i===0?'review':'no-log',findings:i===0?findings:[],notes:[]}));
   const windows={runtimes:[{id:'proton:fixture',name:'GE-Proton10-34',kind:'proton'}],games:[{id:'123-456',name:'Black Myth: Wukong',runtimeId:'proton:fixture',gameExe:'/home/player/Games/Black Myth Wukong/b1.exe',state:'game-exited',exitCode:0,message:'Game process ended.',directory:'/home/player/.local/share/proton-medic/windows-games/123-456',windowsDrive:'/home/player/Games/Black Myth Wukong/pfx/drive_c',prefixDirectory:'/home/player/Games/Black Myth Wukong/pfx',logDirectory:'/home/player/.local/share/proton-medic/windows-games/123-456/logs/123'}],removedGames:[],warnings:[]};
+  windows.games[0].lastLaunchedAt=1700000060000;
   windows.games.push({...windows.games[0],id:'789-123',name:'Game Setup',gameExe:null,state:'installer-exited'});
   window.__PM_FIXTURE_WINDOWS=windows;
   window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
@@ -66,7 +67,26 @@ let browser;
    }
   }
  }
- await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();await page.getByRole('button',{name:/Black Myth: Wukong/}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});
+ await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();
+ await page.getByRole('button',{name:'Open Black Myth: Wukong (Windows)',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Add Black Myth: Wukong (Windows) to favorites',exact:true}).click();
+ await page.getByRole('combobox',{name:'Filter games'}).selectOption('favorites');
+ await page.getByRole('combobox',{name:'Sort games'}).selectOption('recent');
+ for(const [width,height] of [[1280,800],[390,844]]){
+  await page.setViewportSize({width,height});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Unified library overflow: '+width);
+  const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width,name:'Unified favorites and recent sorting',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+ }
+ await page.getByRole('button',{name:'Open Black Myth: Wukong (Windows)',exact:true}).click();
+ await page.getByRole('button',{name:'Launch game',exact:true}).waitFor();
+ if(await page.getByRole('region',{name:'Add Windows game'}).count())throw Error('Focused Windows detail contains the installation form');
+ await page.getByRole('button',{name:'Back to My Games',exact:true}).click();
+ await page.getByRole('combobox',{name:'Filter games'}).selectOption('all');
+ await page.getByRole('combobox',{name:'Sort games'}).selectOption('name');
+ await page.setViewportSize({width:1280,height:800});
+ await page.screenshot({path:path.join(output,'unified-library.jpg'),fullPage:true,type:'jpeg',quality:80});
+ await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();await page.getByRole('button',{name:'Open Black Myth: Wukong (Steam)',exact:true}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});
  for(const name of ['Diagnostics','Proton','Launch & repair','Backups & details']) {
   await page.getByRole('tab',{name,exact:true}).click();
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Game panel overflow: '+name);
@@ -127,7 +147,7 @@ let browser;
  }
  await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg']) {
+ for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();
