@@ -51,6 +51,14 @@ pub fn config(path: &Path) -> Result<File, String> {
         .map_err(|e|format!("Another Proton Medic instance is changing this Steam configuration. Retry after it finishes: {e}"))
 }
 pub struct PrefixLease { _stable: File, _legacy: Option<File> }
+impl PrefixLease {
+    pub(crate) fn inherited_fds(&self) -> Vec<std::os::fd::RawFd> {
+        use std::os::fd::AsRawFd;
+        let mut fds=vec![self._stable.as_raw_fd()];
+        if let Some(legacy)=&self._legacy { fds.push(legacy.as_raw_fd()); }
+        fds
+    }
+}
 pub fn prefix(prefix: &Path) -> Result<PrefixLease, String> {
     let stable = prefix_location(prefix)?;
     let prefix = fs::canonicalize(prefix).map_err(|e|e.to_string())?;

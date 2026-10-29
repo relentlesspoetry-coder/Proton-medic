@@ -332,6 +332,9 @@ fn rollback_text(undo: &ConfigUndo, current: &[u8]) -> Result<String, String> {
 }
 
 pub(crate) fn select_tracked(app_id:String,library_path:String,confirmed:bool, expected_tool: Option<&str>)->Result<(AutoSelection, Option<ConfigUndo>),String>{
+    select_tracked_with_control(app_id,library_path,confirmed,expected_tool,None)
+}
+pub(crate) fn select_tracked_with_control(app_id:String,library_path:String,confirmed:bool,expected_tool:Option<&str>,revision:Option<u64>)->Result<(AutoSelection,Option<ConfigUndo>),String>{
     if !confirmed {return Err("Enable auto-selection or approve this game before changing its Proton version".into());}
     if app_id.is_empty() || !app_id.bytes().all(|b|b.is_ascii_digit()) {return Err("Invalid Steam app ID".into());}
     let _lock=CONFIG_LOCK.lock().map_err(|_|"Auto-selection lock unavailable")?;
@@ -361,6 +364,9 @@ pub(crate) fn select_tracked(app_id:String,library_path:String,confirmed:bool, e
         .ok_or("Recommended Proton is not installed for this game’s Steam installation")?;
     let id=internal_id(&selected.name,Path::new(&selected.path))?;
     let config=config_for_library(&scan,&library_path)?;
+    // Recheck consent after all scans and immediately before the backed-up write.
+    // Disabling waits for this permit to drop if a transaction already started.
+    let _automatic_permit=revision.map(crate::log_monitor::write_permit).transpose()?;
     let (backup_path,changed)=replace_config(&config,&app_id,&id,true)?;
     let undo = if changed {
         let before = fs::read(&backup_path).map_err(|e| format!("Selection saved, but cannot read rollback backup: {e}"))?;

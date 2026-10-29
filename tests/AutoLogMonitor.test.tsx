@@ -9,7 +9,7 @@ it('reads automatically with writes disabled and polls without overlapping calls
   let resolve!: (value: unknown) => void;
   invoke.mockImplementationOnce(() => new Promise(r => { resolve = r; })).mockResolvedValue([]);
   render(<AutoLogMonitor enabled={false} onToggle={() => {}}/>);
-  expect(invoke).toHaveBeenCalledWith('monitor_game_logs', { enabled: false });
+  expect(invoke).toHaveBeenCalledWith('monitor_game_logs');
   await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
   expect(invoke).toHaveBeenCalledTimes(1);
   await act(async () => resolve([]));
@@ -70,4 +70,21 @@ it('retains the queued logging action when cancellation fails',async()=>{
  render(<AutoLogMonitor enabled={false} onToggle={()=>{}}/>);await act(async()=>{});
  await act(async()=>fireEvent.click(screen.getByRole('button',{name:'Cancel queued log setup'})));
  expect(screen.getByRole('alert').textContent).toContain('Setup already completed');expect((screen.getByRole('button',{name:'Cancel queued log setup'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('never sends a stale consent flag through polling after a toggle',async()=>{
+ let resolve!:(value:unknown)=>void;
+ invoke.mockImplementationOnce(()=>new Promise(r=>{resolve=r;})).mockResolvedValue([]);
+ const view=render(<AutoLogMonitor enabled={true} onToggle={()=>{}}/>);
+ view.rerender(<AutoLogMonitor enabled={false} onToggle={()=>{}}/>);
+ await act(async()=>{resolve([]);});
+ expect(invoke.mock.calls.every(call=>call[0]!=='monitor_game_logs'||call.length===1)).toBe(true);
+});
+it('keeps the consent toggle disabled until the backend handshake finishes',async()=>{
+ invoke.mockResolvedValue([]);const toggle=vi.fn();
+ render(<AutoLogMonitor enabled={true} controlPending onToggle={toggle}/>);
+ await act(async()=>{});
+ fireEvent.click(screen.getByRole('checkbox'));
+ expect(toggle).not.toHaveBeenCalled();
+ expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
 });

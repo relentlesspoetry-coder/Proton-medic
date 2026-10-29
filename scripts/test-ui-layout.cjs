@@ -46,6 +46,8 @@ let browser;
    if(cmd==='recommend_proton')return {games:games.map(g=>({appId:g.appId,libraryPath:g.libraryPath,gameName:g.name,status:'try-version',suggestedTool:'Proton Experimental',configuredTool:'GE-Proton10-34',reason:'A different installed version may help with the recorded exception.',nextStep:'Back up your selection, then test the game.',confidence:'tentative',alternatives:['GE-Proton10-34'],evidence:['wine-exception']})),note:''};
    if(cmd==='list_windows_games')return windows;
    if(cmd==='get_windows_launch_history')return {entries:[{id:'1-1700000000',kind:'game',runtime:'GE-Proton10-34',startedAt:1700000000000,endedAt:1700000065000,state:'process-failed',exitCode:7,message:'Game process ended.',summaries:['A Windows exception was recorded'],partialLogs:true},{id:'1-1600000000',kind:'installer',runtime:'Wine',startedAt:1600000000000,endedAt:1600000065000,state:'installer-exited',exitCode:0,message:'Setup process ended.',summaries:[],partialLogs:false}],warnings:[]};
+   if(cmd==='get_auto_fix_control')return window.__PM_AUTO_CONTROL??{enabled:false,revision:0};
+   if(cmd==='set_auto_fix_control'){window.__PM_AUTO_CONTROL={enabled:args.enabled,revision:args.revision};return window.__PM_AUTO_CONTROL;}
    if(cmd==='monitor_game_logs')return window.__PM_PENDING_LOGS??[];
    if(cmd==='cancel_game_logging'){window.__PM_PENDING_LOGS=[];return {state:'cancelled'};}
    if(cmd==='sample_windows_resources')return {status:'live',sample:{runId:args.runId,capturedAt:Date.now(),cpuPercent:145.2,memoryBytes:1536*1024*1024,peakMemoryBytes:1700*1024*1024,processCount:6,partial:false},message:''};

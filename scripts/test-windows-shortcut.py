@@ -107,6 +107,81 @@ class WindowsShortcutTests(unittest.TestCase):
         self.assertEqual(process.returncode, 0, error)
         self.assertEqual(json.loads((self.profile/'profile.json').read_text())['state'], 'game-exited')
 
+    def test_parent_crash_keeps_leases_logs_monitor_and_completion(self):
+        runtime = self.home/'bin/wine'
+        release = self.home/'release-crash-fixture'
+        runtime.write_text('#!/usr/bin/python3\nimport os,time\nfrom pathlib import Path\n'
+                           f'Path({str(self.receipt)!r}).write_text(str(os.getpid()))\n'
+                           'print("before parent crash", flush=True)\n'
+                           'deadline=time.monotonic()+45\n'
+                           f'while not Path({str(release)!r}).exists() and time.monotonic()<deadline: time.sleep(0.05)\n'
+                           'print("after parent crash", flush=True)\n')
+        process = subprocess.Popen([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)],
+                                   env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        def saved():
+            return json.loads((self.profile/'profile.json').read_text())
+        def wait_for(check, message, timeout=20):
+            deadline = time.monotonic()+timeout
+            while time.monotonic()<deadline:
+                if check():
+                    return
+                time.sleep(0.05)
+            self.fail(message)
+        try:
+            wait_for(self.receipt.exists, 'Disposable runtime did not start')
+            runtime_pid = int(self.receipt.read_text())
+            initial = saved()
+            logs = self.profile/'logs'/initial['runId']
+            # Kill only the disposable application's parent, never its game/helper.
+            process.kill()
+            process.communicate(timeout=10)
+            os.kill(runtime_pid, 0)
+            locks = [self.profile/'profile.lock', self.prefix/'.proton-medic.lock',
+                     self.home/'data/proton-medic/locks/activity.lock']
+            locks += list((self.home/'data/proton-medic/locks').glob('prefix-*.lock'))
+            self.assertEqual(len(locks), 4, 'Stable prefix lease was not created')
+            for path in locks:
+                with path.open('r+') as lock:
+                    with self.assertRaises(BlockingIOError, msg=str(path)):
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            second = self.root/'456-789'
+            second.mkdir()
+            (second/'profile.json').write_text(json.dumps(dict(self.record, id='456-789', prefixPath=str(self.prefix))))
+            blocked = subprocess.run([str(BINARY), '--launch-windows-game', '456-789', '--profile-root', str(self.root)],
+                                     env=self.env, text=True, capture_output=True, timeout=10)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertIn('prefix is in use', blocked.stderr)
+            (logs/'monitor-request.json').write_text(json.dumps(dict(expiresAt=int(time.time()*1000)+6000)))
+            wait_for((logs/'monitor-sample.json').exists, 'Surviving runtime monitor did not respond')
+            sample = json.loads((logs/'monitor-sample.json').read_text())
+            self.assertGreaterEqual(sample['processCount'], 1)
+            release.touch()
+            wait_for(lambda: saved()['state']=='game-exited', 'Surviving helper did not persist completion')
+            history = json.loads((logs/'history.json').read_text())
+            self.assertEqual(history['state'], 'game-exited')
+            self.assertEqual(history['exitCode'], 0)
+            self.assertGreaterEqual(history['endedAt'], history['startedAt'])
+            self.assertIn('after parent crash', (logs/'stdout.log').read_text())
+            def unlocked():
+                try:
+                    for path in locks:
+                        with path.open('r+') as lock:
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return True
+                except BlockingIOError:
+                    return False
+            wait_for(unlocked, 'Completed supervisor did not release all leases')
+            retry = self.launch()
+            self.assertEqual(retry.returncode, 0, retry.stderr)
+        finally:
+            release.touch()
+            if process.poll() is None:
+                process.communicate(timeout=30)
+            # Give orphaned disposable helpers time to save before removing fixtures.
+            deadline = time.monotonic()+10
+            while saved()['state'].endswith('running') and time.monotonic()<deadline:
+                time.sleep(0.05)
+
     def test_two_profiles_cannot_launch_the_same_prefix_concurrently(self):
         first = self.start_held_runtime()
         second = self.root/'456-789'

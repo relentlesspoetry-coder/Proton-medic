@@ -177,10 +177,16 @@ struct LaunchSpec {
     env: Vec<(std::ffi::OsString, Option<std::ffi::OsString>)>,
     cwd: Option<std::path::PathBuf>,
     startup_fd: i32,
+    lease_fds: Vec<i32>,
+    stdout_fd: i32,
+    stderr_fd: i32,
+    session: crate::windows_games::SupervisedSession,
 }
-pub(crate) fn spawn_runtime(command: &mut std::process::Command) -> io::Result<Child> {
-    // Unit fixtures exercise command construction; packaged-binary tests exercise re-exec.
-    #[cfg(test)] { return command.spawn(); }
+pub(crate) fn spawn_runtime(command: &mut std::process::Command,
+    session: &crate::windows_games::SupervisedSession, leases: &[i32], stdout: &File, stderr: &File,
+) -> io::Result<Child> {
+    // Packaged integration tests exercise re-exec; unit fixtures use their test runtime directly.
+    #[cfg(test)] { let _=(session,leases,stdout,stderr); return command.spawn(); }
     #[cfg(not(test))] {
         use std::os::unix::{process::CommandExt, net::UnixStream};
         let (mut reader, writer) = UnixStream::pair()?;
@@ -189,15 +195,19 @@ pub(crate) fn spawn_runtime(command: &mut std::process::Command) -> io::Result<C
             program: command.get_program().into(), args: command.get_args().map(Into::into).collect(),
             env: command.get_envs().map(|(k,v)|(k.into(),v.map(Into::into))).collect(),
             cwd: command.get_current_dir().map(Into::into), startup_fd,
+            lease_fds: leases.to_vec(), stdout_fd: stdout.as_raw_fd(), stderr_fd: stderr.as_raw_fd(), session:session.clone(),
         };
-        // Inherit bundle libraries for our helper; apply host overrides only to the runtime.
+        let mut inherited=vec![startup_fd,spec.stdout_fd,spec.stderr_fd];inherited.extend_from_slice(leases);
+        // Preserve bundle libraries for our helper. Only the game receives host environment overrides.
         let mut helper = std::process::Command::new(std::env::current_exe()?);
         helper.arg("--supervise-runtime").arg(serde_json::to_string(&spec)?)
-            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped()).process_group(0);
-        // Only this descriptor crosses re-exec. The helper closes it before game execution.
+            .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null()).process_group(0);
         unsafe { helper.pre_exec(move || {
-            if libc::fcntl(startup_fd, libc::F_SETFD, 0) < 0 { return Err(io::Error::last_os_error()); }
+            // fcntl is async-signal-safe. No allocations or locks after fork.
+            for fd in &inherited {
+                if libc::fcntl(*fd,libc::F_SETFD,0)<0 {return Err(io::Error::last_os_error());}
+            }
             Ok(())
         }); }
         let mut child = helper.spawn()?;
@@ -205,54 +215,106 @@ pub(crate) fn spawn_runtime(command: &mut std::process::Command) -> io::Result<C
         let mut acknowledgment=String::new();
         let read=reader.read_to_string(&mut acknowledgment);
         if read.is_ok() && acknowledgment=="started" { return Ok(child); }
-        // Never release ownership while an unacknowledged supervisor may still be alive.
+        // Keep parent leases until an unacknowledged helper has finished too.
         let _=child.wait();
         read?;
         Err(io::Error::other(if acknowledgment.is_empty() { "Runtime supervisor could not start".into() } else { acknowledgment }))
     }
 }
+fn wait_for_runtime_family(primary: libc::pid_t, logs: &std::path::Path) -> io::Result<i32> {
+    let mut exit_code=None;let mut known=HashMap::new();
+    let mut monitor=crate::windows_games::monitor::Sampler::new(logs);
+    loop {
+        loop {
+            let mut status=0;
+            let pid=unsafe {libc::waitpid(-1,&mut status,libc::WNOHANG)};
+            if pid==0 {break;}
+            if pid<0 {
+                let error=io::Error::last_os_error();
+                if error.raw_os_error()==Some(libc::EINTR) {continue;}
+                if error.raw_os_error()==Some(libc::ECHILD) {
+                    return exit_code.ok_or_else(||io::Error::other("Runtime exit status unavailable"));
+                }
+                // Do not abandon living children on a transient observation failure.
+                thread::sleep(Duration::from_millis(200));continue;
+            }
+            if pid==primary {
+                exit_code=Some(if libc::WIFEXITED(status) {libc::WEXITSTATUS(status)} else {128+libc::WTERMSIG(status)});
+            }
+        }
+        if let Ok(all)=processes() {
+            family_alive(&all,std::process::id(),&mut known);
+            let mut observed=known.clone();observed.remove(&std::process::id());
+            monitor.observe(&all,&observed);
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
 pub fn handle_cli() -> Option<i32> {
     if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new("--supervise-runtime")) { return None; }
     let mut acknowledgment: Option<File> = None;
+    // File locks belong to shared open-file descriptions. These inherited handles
+    // retain every lease even if the original GUI/shortcut parent disappears.
+    let mut leases: Vec<File> = vec![];
+    let mut starting_session=None;
     let result = (|| -> Result<i32, Box<dyn std::error::Error>> {
         use std::os::fd::FromRawFd;
         let args: Vec<_> = std::env::args_os().collect();
         if args.len() != 3 { return Err("Invalid supervisor arguments".into()); }
         let spec: LaunchSpec = serde_json::from_str(args[2].to_str().ok_or("Invalid launch specification")?)?;
-        if spec.startup_fd < 3 || unsafe { libc::fcntl(spec.startup_fd,libc::F_GETFD) } < 0 { return Err("Invalid supervisor descriptor".into()); }
-        acknowledgment=Some(unsafe { File::from_raw_fd(spec.startup_fd) });
-        // Do not let a runtime or detached child keep the startup acknowledgment open.
-        if unsafe { libc::fcntl(spec.startup_fd,libc::F_SETFD,libc::FD_CLOEXEC) } < 0 { return Err(io::Error::last_os_error().into()); }
-        if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong) } != 0 { return Err(io::Error::last_os_error().into()); }
-        let mut command = std::process::Command::new(spec.program);
-        command.args(spec.args);
-        for (key,value) in spec.env { if let Some(value)=value { command.env(key,value); } else { command.env_remove(key); } }
-        if let Some(cwd)=spec.cwd { command.current_dir(cwd); }
-        let child = command.spawn()?;
+        let mut descriptors=vec![spec.startup_fd,spec.stdout_fd,spec.stderr_fd];descriptors.extend_from_slice(&spec.lease_fds);
+        let unique:HashSet<_>=descriptors.iter().copied().collect();
+        if unique.len()!=descriptors.len() || spec.lease_fds.len()!=4 {return Err("Invalid supervisor resources".into());}
+        for fd in &descriptors {
+            if *fd<3 || unsafe {libc::fcntl(*fd,libc::F_GETFD)}<0 {return Err("Invalid supervisor descriptor".into());}
+        }
+        acknowledgment=Some(unsafe {File::from_raw_fd(spec.startup_fd)});
+        // No lease, startup socket, or log file is inherited by the game itself.
+        for fd in &descriptors {
+            if unsafe {libc::fcntl(*fd,libc::F_SETFD,libc::FD_CLOEXEC)}<0 {return Err(io::Error::last_os_error().into());}
+        }
+        for fd in spec.lease_fds {leases.push(unsafe {File::from_raw_fd(fd)});}
+        let stdout=unsafe {File::from_raw_fd(spec.stdout_fd)};
+        let stderr=unsafe {File::from_raw_fd(spec.stderr_fd)};
+        spec.session.validate()?;let logs=spec.session.logs()?;
+        starting_session=Some(spec.session.clone());
+        if unsafe {libc::prctl(libc::PR_SET_CHILD_SUBREAPER,1 as libc::c_ulong,0 as libc::c_ulong,0 as libc::c_ulong,0 as libc::c_ulong)}!=0 {return Err(io::Error::last_os_error().into());}
+        let mut command=std::process::Command::new(spec.program);
+        command.args(spec.args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        for (key,value) in spec.env {if let Some(value)=value {command.env(key,value);} else {command.env_remove(key);}}
+        if let Some(cwd)=spec.cwd {command.current_dir(cwd);}
+        let mut child=command.spawn()?;
+        starting_session=None;
         if let Some(mut acknowledgment)=acknowledgment.take() {
-            // A disconnected caller must not stop supervision of a game already started.
+            // Losing the caller cannot cancel supervision of a game already started.
             let _=acknowledgment.write_all(b"started");
         }
-        let primary = child.id() as libc::pid_t;
-        let mut exit_code = 125;
+        let stop=Arc::new(AtomicBool::new(false));
+        let signal=stop.clone();let out=child.stdout.take().map(|out|thread::spawn(move||capture(out,stdout,signal)));
+        let signal=stop.clone();let err=child.stderr.take().map(|err|thread::spawn(move||capture(err,stderr,signal)));
+        let status=wait_for_runtime_family(child.id() as libc::pid_t,&logs);
+        stop.store(true,Ordering::Release);
+        let captures=[out.map(|join|join.join()),err.map(|join|join.join())];
+        let capture_ok=captures.into_iter().all(|result|matches!(result,Some(Ok(Ok(())))));
+        let code=status.as_ref().ok().copied();let error=status.err().map(|error|error.to_string());
+        // A full disk or temporary permissions problem must not lose completion or
+        // release ownership. Keep retrying while the independent supervisor lives.
         loop {
-            let mut status = 0;
-            let pid = unsafe { libc::waitpid(-1, &mut status, 0) };
-            if pid < 0 {
-                let error=io::Error::last_os_error();
-                if error.raw_os_error()==Some(libc::EINTR) { continue; }
-                if error.raw_os_error()==Some(libc::ECHILD) { break; }
-                return Err(error.into());
-            }
-            if pid == primary {
-                exit_code = if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) }
-                    else { 128 + libc::WTERMSIG(status) };
+            match spec.session.complete(code,capture_ok,error.as_deref()) {
+                Ok(())=>{spec.session.completion_warning(None);break;},
+                Err(error)=>{spec.session.completion_warning(Some(&error));thread::sleep(Duration::from_secs(1));},
             }
         }
-        Ok(exit_code)
+        Ok(code.unwrap_or(125))
     })();
-    Some(match result { Ok(code)=>code, Err(error)=>{
-        if let Some(mut acknowledgment)=acknowledgment.take() { let _=write!(acknowledgment,"{error}"); }
-        eprintln!("Runtime supervisor: {error}");125
-    } })
+    Some(match result {Ok(code)=>code,Err(error)=>{
+        if let Some(session)=starting_session {
+            while let Err(persist_error)=session.start_failed(&error.to_string()) {
+                session.completion_warning(Some(&persist_error));thread::sleep(Duration::from_secs(1));
+            }
+            session.completion_warning(None);
+        }
+        if let Some(mut acknowledgment)=acknowledgment.take(){let _=write!(acknowledgment,"{error}");}
+        125
+    }})
 }

@@ -53,6 +53,12 @@ pub(crate) fn require_update_idle() -> Result<(),String> {
 pub struct FixStarted { pub session_id: String, pub selection: auto_select::AutoSelection }
 
 pub fn start(app_id: String, library: String, expected_tool: String, confirmed: bool) -> Result<FixStarted, String> {
+    start_with_control(app_id, library, expected_tool, confirmed, None)
+}
+pub(crate) fn start_automatic(app_id:String, library:String, expected_tool:String, revision:u64) -> Result<FixStarted,String> {
+    start_with_control(app_id, library, expected_tool, true, Some(revision))
+}
+fn start_with_control(app_id:String, library:String, expected_tool:String, confirmed:bool, revision:Option<u64>) -> Result<FixStarted,String> {
     if !confirmed { return Err("Approve the configuration change before applying the fix".into()); }
     let activity = crate::coordination::activity()?;
     let mut sessions = SESSIONS.lock().map_err(|_| "Fix session lock unavailable")?;
@@ -63,7 +69,7 @@ pub fn start(app_id: String, library: String, expected_tool: String, confirmed: 
     let fresh = plan(&app_id, &library)?;
     if !fresh.can_apply { return Err(fresh.reason); }
     if fresh.tool.as_deref() != Some(expected_tool.as_str()) { return Err("Recommendation changed. Diagnose again and review the new fix.".into()); }
-    let (selection, undo) = auto_select::select_tracked(app_id.clone(), library.clone(), true, Some(&expected_tool))?;
+    let (selection, undo) = auto_select::select_tracked_with_control(app_id.clone(), library.clone(), true, Some(&expected_tool), revision)?;
     let id = format!("{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos());
     sessions.insert(id.clone(), Session { selection: Some(selection.clone()), _activity: Some(activity), app_id, library, undo, attempted: false });
     Ok(FixStarted { session_id: id, selection })

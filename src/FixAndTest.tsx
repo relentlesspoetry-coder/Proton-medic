@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Wrench, Play, RotateCcw } from 'lucide-react';
 import type { Game, AutoSelection, LaunchResult } from './types';
@@ -12,12 +12,16 @@ export function FixAndTest({ game }: { game: Game }) {
   const [session, setSession] = useState<Session | null>(() => {
     try { return JSON.parse(sessionStorage.getItem(key) ?? 'null'); } catch { return null; }
   });
+  const sessionRequest = useRef(0);
+  const sessionMutation = useRef(false);
   useEffect(() => {
     let stopped = false;
     const receive = () => {
+      const request = ++sessionRequest.current;
+      if (sessionMutation.current) return;
       void invoke<(Session & { appId: string; libraryPath: string })[]>('list_fix_sessions').then(sessions => {
-        if (!stopped && Array.isArray(sessions)) setSession(sessions.find(s => s.appId === game.appId && s.libraryPath === game.libraryPath) ?? null);
-      }).catch(e => { if (!stopped) setError(String(e)); });
+        if (!stopped && request === sessionRequest.current && !sessionMutation.current && Array.isArray(sessions)) setSession(sessions.find(s => s.appId === game.appId && s.libraryPath === game.libraryPath) ?? null);
+      }).catch(e => { if (!stopped && request === sessionRequest.current && !sessionMutation.current) setError(String(e)); });
     };
     receive();
     window.addEventListener('pm-fix-session', receive);
@@ -51,13 +55,25 @@ export function FixAndTest({ game }: { game: Game }) {
     return () => { stopped = true; clearTimeout(timer); };
   }, [logging?.state, game.appId, game.libraryPath]);
   const remember = (next: Session | null) => {
+    ++sessionRequest.current;
     setSession(next);
     try { if (next) sessionStorage.setItem(key, JSON.stringify(next)); else sessionStorage.removeItem(key); } catch { /* backend listing recovers the session */ }
     window.dispatchEvent(new Event('pm-fix-session'));
   };
-  const run = async (task: () => Promise<void>) => {
+  const run = async (task: () => Promise<void>, changesSession = false) => {
+    if (sessionMutation.current) return;
+    if (changesSession) {
+      sessionMutation.current = true;
+      ++sessionRequest.current;
+    }
     setBusy(true); setError('');
-    try { await task(); } catch (e) { setError(String(e)); } finally { setBusy(false); }
+    try { await task(); } catch (e) { setError(String(e)); } finally {
+      setBusy(false);
+      if (changesSession) {
+        sessionMutation.current = false;
+        window.dispatchEvent(new Event('pm-fix-session'));
+      }
+    }
   };
   const diagnose = () => run(async () => {
     setPlan(null); setApproved(false); setMessage('');
@@ -79,18 +95,18 @@ export function FixAndTest({ game }: { game: Game }) {
     });
     remember(current); setMessage(current.selection.message); setResult(null);
     await launch(current);
-  });
+  }, true);
   const rollback = () => run(async () => {
     if (!session || !window.confirm('Close Steam first. Restore the configuration from before this fix? Newer changes to this game’s mapping will block automatic rollback.')) return;
     setMessage(await invoke<string>('rollback_game_fix', { sessionId: session.sessionId, confirmed: true }));
     remember(null); setPlan(null); setResult(null); setApproved(false);
-  });
+  }, true);
   const keep = () => run(async () => {
     if (!session) return;
     await invoke('finish_game_fix', { sessionId: session.sessionId, confirmed: true });
     remember(null); setPlan(null); setResult(null); setApproved(false);
     setMessage('Selection kept by you. The configuration backup remains on disk. This does not certify game compatibility.');
-  });
+  }, true);
   return <section className="pm-section" aria-label="Fix and test game">
     <div className="pm-section-heading"><div><h2>Fix &amp; Test</h2><p>Diagnose this game to prepare logging automatically, then apply a backed-up fix and test.</p></div><Wrench className="pm-green" size={23}/></div>
     {!session && <button className="pm-button pm-button-secondary" disabled={busy} onClick={() => void diagnose()}>{busy ? 'Working…' : 'Diagnose this game'}</button>}
@@ -109,7 +125,7 @@ export function FixAndTest({ game }: { game: Game }) {
     </div></div>}
     {session && <div className="pm-auto-message"><p>Selected: {session.selection.toolName}</p><p>Backup: <code>{session.selection.backupPath || 'No change needed'}</code></p>
       <p>Keep this app open until you keep or roll back the fix. Automatic rollback requires Steam closed and an unchanged game mapping. Backups remain on disk after exit.</p>
-      {!session.attempted && <button disabled={busy} className="pm-button pm-button-primary" onClick={() => void run(() => launch(session))}>Launch &amp; test now</button>}
+      {!session.attempted && <button disabled={busy} className="pm-button pm-button-primary" onClick={() => void run(() => launch(session), true)}>Launch &amp; test now</button>}
       <button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void rollback()}><RotateCcw size={17}/>Roll back fix</button>{' '}
       <button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void keep()}>Keep this selection</button>
     </div>}

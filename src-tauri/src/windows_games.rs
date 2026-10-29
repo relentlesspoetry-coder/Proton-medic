@@ -194,6 +194,53 @@ fn lock_profile(dir:&Path)->Result<File,String>{
     let file=OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600).custom_flags(libc::O_NOFOLLOW).open(dir.join("profile.lock")).map_err(|e|e.to_string())?;
     file.try_lock().map_err(|_|"Another Proton Medic instance is changing this profile")?;Ok(file)
 }
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct SupervisedSession { directory: PathBuf, record: Record, install: bool, previous_launch: Option<u64> }
+impl SupervisedSession {
+    pub(crate) fn logs(&self) -> Result<PathBuf,String> {
+        let run=self.record.run_id.as_deref().filter(|run|valid_id(run)).ok_or("Missing run identity")?;
+        let logs=self.directory.join("logs").join(run);directory(&logs,false)?;Ok(logs)
+    }
+    pub(crate) fn validate(&self) -> Result<(),String> {
+        let (dir,record)=load(self.directory.parent().ok_or("Profile root unavailable")?,&self.record.id)?;
+        if dir!=self.directory {return Err("Supervisor profile directory does not match its identity".into());}
+        if record.run_id!=self.record.run_id || !record.state.ends_with("running") || record.boot_id!=self.record.boot_id {
+            return Err("Game session changed before supervision started".into());
+        }
+        self.logs()?;Ok(())
+    }
+    pub(crate) fn start_failed(&self,error:&str) -> Result<(),String> {
+        let mut record=self.record.clone();
+        let (_,latest)=load(self.directory.parent().ok_or("Profile root unavailable")?,&record.id)?;
+        if latest.run_id!=record.run_id {return Err("Startup failure belongs to an older session; the current profile was preserved".into());}
+        record.last_launched_at=self.previous_launch;record.state="start-failed".into();
+        record.message=format!("Runtime failed to start: {error}");
+        history::finish(&self.directory,&record).and_then(|_|save(&self.directory,&record))
+    }
+    pub(crate) fn complete(&self,code:Option<i32>,capture_ok:bool,error:Option<&str>) -> Result<(),String> {
+        let mut record=self.record.clone();
+        let (_,latest)=load(self.directory.parent().ok_or("Profile root unavailable")?,&record.id)?;
+        if latest.run_id!=record.run_id { return Err("Completion belongs to an older game session; the current profile was preserved".into()); }
+        record.exit_code=code;
+        record.state=if error.is_none() && code==Some(0) {if self.install {"installer-exited"} else {"game-exited"}} else {"process-failed"}.into();
+        record.message=if self.install {"Setup process ended. Select the installed game executable to continue."} else {"Game process ended."}.into();
+        if let Some(error)=error { record.message=format!("Could not observe runtime exit: {error}"); }
+        if !capture_ok {record.message.push_str(" Runtime output capture failed; logs may be incomplete.");}
+        history::finish(&self.directory,&record).and_then(|_|save(&self.directory,&record))
+    }
+    pub(crate) fn completion_warning(&self,error:Option<&str>) {
+        let Ok(logs)=self.logs() else {return};let path=logs.join("completion-error.txt");
+        if let Some(error)=error {
+            let Ok(stamp)=stamp() else {return};let temp=logs.join(format!(".completion-{stamp}.tmp"));
+            if let Ok(mut file)=OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp) {
+                let safe:String=error.chars().take(1000).collect();
+                if file.write_all(safe.as_bytes()).is_ok() {let _=fs::rename(&temp,&path);}
+                let _=fs::remove_file(temp);
+            }
+        } else {let _=fs::remove_file(path);}
+    }
+}
+
 fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<Game,String>{
     let activity=crate::coordination::activity()?;
     let mut jobs=JOBS.lock().map_err(|_|"Process registry unavailable")?;
@@ -213,22 +260,40 @@ fn spawn(dir:PathBuf,record:Record,r:Runtime,exe:PathBuf,install:bool)->Result<G
     record.boot_id=boot_id();record.run_id=Some(run);record.exit_code=None;record.state=if install{"installer-running"}else{"game-running"}.into();
     record.message=if install{"Complete the setup window, then select the installed game executable."}else{"Game started."}.into();
     history::begin(&logs,&record,&r,install)?;save(&dir,&record)?;
-    let child=crate::runtime_session::spawn_runtime(&mut command_for_record(&r,&dir,&prefix,&exe,&logs,&record,install));
-    let mut child=match child{Ok(c)=>c,Err(e)=>{record.last_launched_at=previous_launch;record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");persist_completion(&dir,&record)?;return Ok(view(&dir,record,false));}};
-    let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
+    use std::os::fd::AsRawFd;
+    let session=SupervisedSession{directory:dir.clone(),record:record.clone(),install,previous_launch};
+    let mut leases=prefix_lock.inherited_fds();leases.extend([activity.as_raw_fd(),_profile_lock.as_raw_fd()]);
+    let child=crate::runtime_session::spawn_runtime(&mut command_for_record(&r,&dir,&prefix,&exe,&logs,&record,install),
+        &session,&leases,&stdout,&stderr);
+    let mut child=match child{Ok(c)=>c,Err(e)=>{
+        // A helper that reached startup validation already saved its own failure.
+        // Only failures before that handoff need a parent-owned completion write.
+        if let Some(root)=dir.parent() {
+            if let Ok((_,saved))=load(root,&record.id) {
+                if saved.run_id==record.run_id && saved.state=="start-failed" {return Ok(view(&dir,saved,false));}
+            }
+        }
+        record.last_launched_at=previous_launch;record.state="start-failed".into();record.message=format!("Runtime failed to start: {e}");
+        persist_completion(&dir,&record)?;return Ok(view(&dir,record,false));
+    }};
     jobs.insert(record.id.clone());let result=view(&dir,record.clone(),true);
+    #[cfg(not(test))]
     std::thread::spawn(move||{
-        let _activity=activity;
-        let _prefix_lock=prefix_lock;
-        let _profile_lock_guard=_profile_lock;
-        let (status,capture_ok)=crate::runtime_session::supervise_monitored(child,out,err,stdout,stderr,Some(&logs));
-        record.exit_code=status.as_ref().ok().and_then(|s|s.code());
-        record.state=if status.as_ref().is_ok_and(|s|s.success()){if install{"installer-exited"}else{"game-exited"}}else{"process-failed"}.into();
-        record.message=if install{"Setup process ended. Select the installed game executable to continue."}else{"Game process ended."}.into();
-        if let Err(e)=status{record.message=format!("Could not observe runtime exit: {e}");}
-        if !capture_ok{record.message.push_str(" Runtime output capture failed; logs may be incomplete.");}
-        if let Ok(mut jobs)=JOBS.lock(){if persist_completion(&dir,&record).is_ok(){jobs.remove(&record.id);}}
-    });Ok(result)
+        // The separate supervisor owns locks, logging and durable completion. Its
+        // lifetime is independent of this GUI/desktop-shortcut parent.
+        let _=child.wait();
+        if let Ok(mut jobs)=JOBS.lock(){jobs.remove(&record.id);}
+    });
+    #[cfg(test)] {
+        let out=child.stdout.take().ok_or("Runtime stdout unavailable")?;let err=child.stderr.take().ok_or("Runtime stderr unavailable")?;
+        std::thread::spawn(move||{
+            let _activity=activity;let _prefix_lock=prefix_lock;let _profile_lock_guard=_profile_lock;
+            let (status,capture_ok)=crate::runtime_session::supervise_monitored(child,out,err,stdout,stderr,Some(&logs));
+            let code=status.as_ref().ok().and_then(|s|s.code());let error=status.err().map(|e|e.to_string());
+            if session.complete(code,capture_ok,error.as_deref()).is_ok(){if let Ok(mut jobs)=JOBS.lock(){jobs.remove(&record.id);}}
+        });
+    }
+    Ok(result)
 }
 pub fn list()->Result<Library,String>{list_in(root()?,discover_runtimes(&crate::inventory::steam()))}
 fn list_in(root:PathBuf,available_runtimes:Vec<Runtime>)->Result<Library,String>{
@@ -242,6 +307,12 @@ fn list_in(root:PathBuf,available_runtimes:Vec<Runtime>)->Result<Library,String>
                 match migrate{Ok(latest)=>r=latest,Err(e)=>warnings.push(format!("Could not record recovery state for {id}: {e}"))}
             }
             let active=jobs.contains(&id) || lock_profile(&dir).is_err();
+            if let Some(run)=r.run_id.as_deref().filter(|run|valid_id(run)) {
+                let warning=dir.join("logs").join(run).join("completion-error.txt");
+                if regular(&warning,4096).is_ok() {
+                    if let Ok(error)=fs::read_to_string(warning) {warnings.push(format!("Completion for {} is still being saved: {error}. Its supervisor will retry.",r.name));}
+                }
+            }
             let hidden=r.hidden;let game=view(&dir,r,active);
             if hidden{removed_games.push(game);}else{games.push(game);}
         },Err(e)=>warnings.push(format!("Could not read managed game {id}: {e}"))}}
@@ -455,6 +526,31 @@ mod tests{
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
     fn pe(path:&Path){let mut bytes=vec![0u8;256];bytes[..2].copy_from_slice(b"MZ");bytes[60..64].copy_from_slice(&128u32.to_le_bytes());bytes[128..132].copy_from_slice(b"PE\0\0");bytes[132..134].copy_from_slice(&0x8664u16.to_le_bytes());fs::write(path,bytes).unwrap();}
     fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None}}
+    #[test] fn supervisor_completion_retries_and_preserves_newer_run_identity(){
+        let f=Fixture::new();let id="123-456";let dir=f.0.join(id);directory(&dir,true).unwrap();
+        let logs=dir.join("logs/111-222");fs::create_dir_all(&logs).unwrap();
+        let mut r=record(id);r.run_id=Some("111-222".into());r.state="game-running".into();r.boot_id=boot_id();save(&dir,&r).unwrap();
+        let session=SupervisedSession{directory:dir.clone(),record:r.clone(),install:false,previous_launch:Some(123)};
+        session.validate().unwrap();
+        // A temporary invalid receipt must not commit a partially completed profile.
+        fs::write(logs.join("history.json"),b"invalid").unwrap();
+        assert!(session.complete(Some(0),true,None).is_err());
+        assert_eq!(load(&f.0,id).unwrap().1.state,"game-running");
+        fs::remove_file(logs.join("history.json")).unwrap();
+        session.complete(Some(0),true,None).unwrap();
+        assert_eq!(load(&f.0,id).unwrap().1.state,"game-exited");
+        r.run_id=Some("333-444".into());save(&dir,&r).unwrap();
+        assert!(session.complete(Some(0),true,None).is_err());
+        assert_eq!(load(&f.0,id).unwrap().1.run_id.as_deref(),Some("333-444"));
+    }
+    #[test] fn supervisor_start_failure_restores_previous_launch_date(){
+        let f=Fixture::new();let id="123-456";let dir=f.0.join(id);directory(&dir,true).unwrap();
+        fs::create_dir_all(dir.join("logs/111-222")).unwrap();
+        let mut r=record(id);r.run_id=Some("111-222".into());r.state="game-running".into();r.last_launched_at=Some(999);save(&dir,&r).unwrap();
+        let session=SupervisedSession{directory:dir.clone(),record:r,install:false,previous_launch:Some(123)};
+        session.start_failed("missing interpreter").unwrap();
+        let done=load(&f.0,id).unwrap().1;assert_eq!(done.state,"start-failed");assert_eq!(done.last_launched_at,Some(123));
+    }
     #[test] fn validates_windows_pe_and_rejects_linux_and_truncated_files(){
         let f=Fixture::new();let exe=f.0.join("setup.exe");pe(&exe);assert!(windows_exe(&exe).is_ok());
         fs::write(&exe,b"#!/bin/sh\necho not windows").unwrap();assert!(windows_exe(&exe).is_err());

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ActiveFixSessions } from '../src/ActiveFixSessions';
 import { FixAndTest } from '../src/FixAndTest';
 import type { Game } from '../src/types';
@@ -37,4 +37,42 @@ it('keeps recovery controls if rollback fails', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Roll back' }));
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Close Steam first');
   expect(screen.getByRole('button', { name: 'Keep selection' })).toBeTruthy();
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+it.each(['Keep selection', 'Roll back'])('does not restore a closed global session after %s', async label => {
+  const previous = deferred<typeof active[]>();
+  let reads = 0;
+  invoke.mockImplementation((command: string) => {
+    if (command === 'list_fix_sessions') {
+      ++reads;
+      return reads === 1 ? Promise.resolve([active]) : reads === 2 ? previous.promise : Promise.resolve([]);
+    }
+    return Promise.resolve(null);
+  });
+  render(<ActiveFixSessions/>);
+  await screen.findByRole('button', { name: label });
+  act(() => { window.dispatchEvent(new Event('pm-fix-session')); });
+  fireEvent.click(screen.getByRole('button', { name: label }));
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Unfinished repairs' })).toBeNull());
+  await act(async () => { previous.resolve([active]); });
+  expect(screen.queryByRole('region', { name: 'Unfinished repairs' })).toBeNull();
+});
+
+it('retains the latest list when earlier refreshes finish out of order', async () => {
+  const previous = deferred<typeof active[]>();
+  let reads = 0;
+  invoke.mockImplementation((command: string) => {
+    if (command === 'list_fix_sessions') return ++reads === 1 ? previous.promise : Promise.resolve([]);
+    return Promise.resolve(null);
+  });
+  render(<ActiveFixSessions/>);
+  await act(async () => { window.dispatchEvent(new Event('pm-fix-session')); });
+  await act(async () => { previous.resolve([active]); });
+  expect(screen.queryByRole('region', { name: 'Unfinished repairs' })).toBeNull();
 });

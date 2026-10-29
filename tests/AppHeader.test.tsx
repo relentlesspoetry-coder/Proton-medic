@@ -11,6 +11,7 @@ beforeEach(() => {
   invoke.mockImplementation(async (command: string) => {
     if (command === 'scan_steam') return { games: [], installations: [], libraries: [], compatibilityTools: [], warnings: [] };
     if (command === 'monitor_game_logs') return [];
+    if (command === 'get_auto_fix_control') return {enabled:false,revision:0};
     return { games: [] };
   });
 });

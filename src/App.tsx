@@ -16,6 +16,7 @@ import { ProtonAdvisor } from './ProtonAdvisor';
 import { WindowsGames } from './WindowsGames';
 import { UnifiedLibrary, type LibraryFilter, type LibrarySource, type LibrarySort } from './UnifiedLibrary';
 import { AutoLogMonitor } from './AutoLogMonitor';
+import { useAutoFixControl } from './useAutoFixControl';
 import { ActiveFixSessions } from './ActiveFixSessions';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
@@ -65,9 +66,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [autoMode, setAutoMode] = useState<boolean>(() => {
-    try { return window.localStorage.getItem('proton-medic.auto-log-fixes.enabled') === 'true'; } catch { return false; }
-  });
+  const autoControl = useAutoFixControl();
   const [autoMessage, setAutoMessage] = useState<string | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [query, setQuery] = useState('');
@@ -156,14 +155,6 @@ export default function App() {
       setAutoMessage(`Could not apply the selection: ${String(e)}`);
     } finally { setAutoBusy(false); }
   }, [scanGames]);
-
-  const toggleAutoMode = (enabled: boolean) => {
-    setAutoMode(enabled);
-    try { window.localStorage.setItem('proton-medic.auto-log-fixes.enabled', String(enabled)); } catch { /* settings are still active this session */ }
-    setAutoMessage(enabled
-      ? 'Automatic log fixes enabled. New supported failures will be queued and fixed after Steam closes, with a backup.'
-      : 'Automatic fixes disabled. Log monitoring continues read-only.');
-  };
 
   const checkVulkan = useCallback(async () => {
     setProbing(true);
@@ -258,8 +249,8 @@ export default function App() {
         </section><details className="pm-section pm-technical"><summary>Advanced system details <ChevronDown size={17}/></summary>{report && <div className="pm-system-advanced"><h3>Graphics devices</h3>{report.system.gpuDevices.map((g,i) => <pre key={i}>{g}</pre>)}<h3>Vulkan ICD files</h3>{report.system.icdManifests.map((v,i) => <pre key={i}>{v}</pre>)}{report.system.notes.map((n,i) => <p key={i}>{n}</p>)}</div>}</details></>}
 
       {page === 'settings' && <div className="pm-page-title"><div><h1>Settings</h1><p>Manage automatic fixes and privacy.</p></div></div>}
-      {page === 'settings' && autoMessage && <p className="pm-auto-message" role="status">{autoMessage}</p>}
-      <AutoLogMonitor enabled={autoMode} onToggle={toggleAutoMode} expanded={page === 'settings'}/>
+      {page === 'settings' && (autoControl.message || autoMessage) && <p className="pm-auto-message" role="status">{autoControl.message || autoMessage}</p>}
+      <AutoLogMonitor enabled={autoControl.enabled} controlPending={autoControl.pending} onToggle={enabled => void autoControl.toggle(enabled)} expanded={page === 'settings'}/>
       {page === 'settings' && <><SupportReport/><section className="pm-section"><div className="pm-section-heading"><div><h2>Privacy & safety</h2><p>Game scans and logs stay on this computer.</p></div><ShieldCheck size={23} className="pm-green"/></div><p className="pm-lead">Scanning and log analysis are read-only. The optional repair tools only archive shader caches or compatibility prefixes after explicit confirmation. The original data is preserved in a backup on the same library drive. Close Steam before repairs or restores. Game diagnostics require no administrator access or telemetry. Checking for app updates contacts GitHub; installing a system package may ask for administrator approval.</p></section>
         <details className="pm-section pm-technical"><summary>Available Proton versions ({scan?.compatibilityTools.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.compatibilityTools.length ? scan.compatibilityTools.map(tool => <div className="pm-discovery" key={tool.path}><Layers size={18}/><div><strong>{tool.name}</strong><small>{tool.source} · {tool.path}</small></div></div>) : <p>No compatibility tools detected.</p>}</details>
         <details className="pm-section pm-technical"><summary>Steam libraries ({scan?.libraries.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.libraries.length ? scan.libraries.map(lib => <div className="pm-discovery" key={lib.path}><HardDrive size={18}/><div><strong>{lib.installKind} library</strong><small>{lib.path}</small></div></div>) : <p>No libraries found.</p>}</details>

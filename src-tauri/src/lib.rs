@@ -138,8 +138,16 @@ async fn finish_game_fix(session_id: String, confirmed: bool) -> Result<(), Stri
 }
 
 #[tauri::command]
-async fn monitor_game_logs(enabled: bool) -> Result<Vec<log_monitor::Update>, String> {
-    tauri::async_runtime::spawn_blocking(move || { let Ok(_activity) = app_update::activity() else { return Ok(vec![]); }; log_monitor::poll(enabled) }).await.map_err(|e| e.to_string())?
+fn get_auto_fix_control() -> Result<log_monitor::ControlState,String> { log_monitor::control_state() }
+#[tauri::command]
+async fn set_auto_fix_control(enabled:bool,revision:u64) -> Result<log_monitor::ControlState,String> {
+    // Invalidate queued polls now, before a blocking-pool task can be delayed.
+    log_monitor::configure(enabled,revision)?;
+    tauri::async_runtime::spawn_blocking(log_monitor::settled_control).await.map_err(|e|e.to_string())?
+}
+#[tauri::command]
+async fn monitor_game_logs() -> Result<Vec<log_monitor::Update>, String> {
+    tauri::async_runtime::spawn_blocking(move || { let Ok(_activity) = app_update::activity() else { return Ok(vec![]); }; log_monitor::poll() }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -273,7 +281,7 @@ pub fn run() {
             }
         })
         .on_page_load(|_,payload|{eprintln!("[Proton Medic startup] Page event: {:?}",payload.event());})
-        .invoke_handler(tauri::generate_handler![list_fix_sessions,list_game_protons,list_proton_versions,fetch_proton_releases,install_proton_version,cancel_proton_download,select_game_proton,prepare_support_report,save_support_report,sample_windows_resources,stop_windows_resource_monitor,get_windows_launch_history,save_windows_launch_settings,reset_windows_launch_settings,review_windows_installation,confirm_windows_installation,get_windows_executable_icon,begin_app_update,cancel_app_update,restart_after_update,startup_diagnostic,set_windows_game_hidden,get_windows_game_icon,get_steam_game_icon,register_windows_game,find_windows_game_executables,rename_windows_game,create_windows_game_shortcut,list_windows_games, install_windows_game, select_windows_game_executable, launch_windows_game, analyze_windows_game, prepare_game_logging, cancel_game_logging, get_game_logging, restore_game_logging, monitor_game_logs, plan_game_fix, start_game_fix, test_game_fix, rollback_game_fix, finish_game_fix, scan_steam, analyze_diagnostics, probe_vulkan, preview_repair, apply_repair, list_repair_backups, restore_repair, recommend_proton, auto_select_proton, test_game_launch])
+        .invoke_handler(tauri::generate_handler![get_auto_fix_control,set_auto_fix_control,list_fix_sessions,list_game_protons,list_proton_versions,fetch_proton_releases,install_proton_version,cancel_proton_download,select_game_proton,prepare_support_report,save_support_report,sample_windows_resources,stop_windows_resource_monitor,get_windows_launch_history,save_windows_launch_settings,reset_windows_launch_settings,review_windows_installation,confirm_windows_installation,get_windows_executable_icon,begin_app_update,cancel_app_update,restart_after_update,startup_diagnostic,set_windows_game_hidden,get_windows_game_icon,get_steam_game_icon,register_windows_game,find_windows_game_executables,rename_windows_game,create_windows_game_shortcut,list_windows_games, install_windows_game, select_windows_game_executable, launch_windows_game, analyze_windows_game, prepare_game_logging, cancel_game_logging, get_game_logging, restore_game_logging, monitor_game_logs, plan_game_fix, start_game_fix, test_game_fix, rollback_game_fix, finish_game_fix, scan_steam, analyze_diagnostics, probe_vulkan, preview_repair, apply_repair, list_repair_backups, restore_repair, recommend_proton, auto_select_proton, test_game_launch])
         .run(tauri::generate_context!())
         .expect("failed to start Proton Medic");
 }

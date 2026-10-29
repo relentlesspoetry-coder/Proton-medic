@@ -5,7 +5,7 @@ interface Update {
   appId: string; libraryPath: string; gameName: string; state: string; message: string; codes: string[];
   session: { sessionId: string; selection: AutoSelection } | null;
 }
-export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled: boolean; onToggle: (enabled: boolean) => void; expanded?: boolean }) {
+export function AutoLogMonitor({ enabled, onToggle, expanded = true, controlPending = false }: { enabled: boolean; onToggle: (enabled: boolean) => void; expanded?: boolean; controlPending?: boolean }) {
   const [updates, setUpdates] = useState<Update[]>([]);
   const [error, setError] = useState('');
   const [cancelling, setCancelling] = useState(false);
@@ -18,7 +18,7 @@ export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled
     const poll = async () => {
       try {
         const revision = cancellation.current;
-        const next = await invoke<Update[]>('monitor_game_logs', { enabled });
+        const next = await invoke<Update[]>('monitor_game_logs');
         if (stopped || revision !== cancellation.current) return;
         setUpdates(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); setError('');
         for (const item of next) {
@@ -55,7 +55,7 @@ export function AutoLogMonitor({ enabled, onToggle, expanded = true }: { enabled
   if (!expanded && !error && !updates.length) return null;
   return <section className="pm-section" aria-label="Automatic game log reader">
     <div className="pm-section-heading"><div><h2>{expanded ? 'Log monitoring' : 'Game log updates'}</h2>{expanded && <p>Checks new Proton logs while Proton Medic is open.</p>}</div></div>
-    {expanded && <><label className="pm-auto-toggle"><input type="checkbox" checked={enabled} onChange={e => onToggle(e.target.checked)}/><span><strong>Automatically apply supported fixes</strong><small>Backs up each change and waits for Steam to close. Games are never launched automatically.</small></span></label>
+    {expanded && <><label className="pm-auto-toggle"><input type="checkbox" disabled={controlPending} checked={enabled} onChange={e => { if (!controlPending) onToggle(e.target.checked); }}/><span><strong>Automatically apply supported fixes</strong><small>Backs up each change and waits for Steam to close. Games are never launched automatically.</small></span></label>
     <details className="pm-update-details"><summary>How log monitoring works</summary><p>Reads logs every 10 seconds. Automatic fixes use new findings and make at most one attempt per game per app session. Use Diagnose this game or a launch test to enable logging.</p></details></>}
     {error && <p role="alert" className="pm-repair-danger">{error}</p>}
     {expanded && !updates.length && <p role="status">Watching for new game logs. No findings to display.</p>}

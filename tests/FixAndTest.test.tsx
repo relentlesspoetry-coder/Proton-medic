@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { FixAndTest } from '../src/FixAndTest';
 import type { Game } from '../src/types';
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -110,4 +110,50 @@ it('reloads the log-settings restore receipt when reopening a game',async()=>{
  render(<FixAndTest game={game}/>);
  expect(await screen.findByRole('button',{name:'Restore previous log settings'})).toBeTruthy();
  expect(invoke).toHaveBeenCalledWith('get_game_logging',{appId:'123',libraryPath:'/fixture'});
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+it.each(['Keep this selection', 'Roll back fix'])('does not resurrect a finished repair after %s', async label => {
+  const receipt = { ...started, appId: game.appId, libraryPath: game.libraryPath, attempted: true };
+  sessionStorage.setItem('pm-fix:/fixture:123', JSON.stringify(receipt));
+  const previous = deferred<typeof receipt[]>();
+  let reads = 0;
+  invoke.mockImplementation((command: string) => {
+    if (command === 'list_fix_sessions') return ++reads === 1 ? previous.promise : Promise.resolve([]);
+    if (command === 'rollback_game_fix') return Promise.resolve('Restored');
+    return Promise.resolve(null);
+  });
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<FixAndTest game={game}/>);
+  fireEvent.click(screen.getByRole('button', { name: label }));
+  await screen.findByRole('button', { name: 'Diagnose this game' });
+  await act(async () => { previous.resolve([receipt]); });
+  expect(screen.getByRole('button', { name: 'Diagnose this game' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Keep this selection' })).toBeNull();
+  expect(sessionStorage.getItem('pm-fix:/fixture:123')).toBeNull();
+});
+
+it('ignores a read started before a session mutation while that mutation is pending', async () => {
+  const receipt = { ...started, appId: game.appId, libraryPath: game.libraryPath, attempted: true };
+  sessionStorage.setItem('pm-fix:/fixture:123', JSON.stringify(receipt));
+  const previous = deferred<typeof receipt[]>();
+  const completion = deferred<null>();
+  let reads = 0;
+  invoke.mockImplementation((command: string) => {
+    if (command === 'list_fix_sessions') return ++reads === 1 ? previous.promise : Promise.resolve([]);
+    if (command === 'finish_game_fix') return completion.promise;
+    return Promise.resolve(null);
+  });
+  render(<FixAndTest game={game}/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Keep this selection' }));
+  await act(async () => { previous.resolve([]); });
+  expect(screen.getByRole('button', { name: 'Keep this selection' })).toHaveProperty('disabled', true);
+  expect(screen.queryByRole('button', { name: 'Diagnose this game' })).toBeNull();
+  await act(async () => { completion.resolve(null); });
+  await screen.findByRole('button', { name: 'Diagnose this game' });
 });
