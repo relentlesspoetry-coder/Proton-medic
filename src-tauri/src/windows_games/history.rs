@@ -127,7 +127,7 @@ pub fn list(id: String) -> Result<History, String> {
         fn record(&self, id:&str) -> Record { serde_json::from_value(serde_json::json!({"id":"123","name":"Game","runtimeId":"wine","installer":"","gameExe":null,"state":"game-running","exitCode":null,"message":"Running","runId":id,"bootId":boot_id()})).unwrap() }
         fn begin(&self,id:&str) -> Record {
             let record=self.record(id); let logs=self.0.join("logs").join(id);fs::create_dir(&logs).unwrap();
-            let runtime=Runtime{id:"wine".into(),name:"Original Wine".into(),kind:"wine".into(),binary:PathBuf::from("/unused"),steam:None};
+            let runtime=Runtime{proton:None,id:"wine".into(),name:"Original Wine".into(),kind:"wine".into(),binary:PathBuf::from("/unused"),steam:None};
             begin(&logs,&record,&runtime,false).unwrap();record
         }
     }

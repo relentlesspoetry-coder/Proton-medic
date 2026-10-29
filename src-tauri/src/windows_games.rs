@@ -9,7 +9,7 @@ use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{R
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct Runtime { pub id:String, pub name:String, pub kind:String, #[serde(skip)] binary:PathBuf, #[serde(skip)] steam:Option<PathBuf> }
+pub struct Runtime { pub id:String, pub name:String, pub kind:String, #[serde(skip)] binary:PathBuf, #[serde(skip)] steam:Option<PathBuf>, #[serde(skip)] proton:Option<PathBuf> }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase")]
 struct Record { id:String, name:String, runtime_id:String, installer:String, game_exe:Option<String>, state:String, exit_code:Option<i32>, message:String, run_id:Option<String>, #[serde(default)] boot_id:Option<String>, #[serde(default)] prefix_path:Option<String>, #[serde(default)] hidden:bool, #[serde(default)] launch_arguments:Vec<String>, #[serde(default)] working_directory:Option<String>, #[serde(default)] default_runtime_id:Option<String>, #[serde(default)] last_launched_at:Option<u64> }
@@ -76,15 +76,21 @@ fn executable(path:&Path)->Option<PathBuf>{let p=fs::canonicalize(path).ok()?;le
 pub fn runtimes()->Vec<Runtime>{ discover_runtimes(&scanner::scan()) }
 fn discover_runtimes(scan:&scanner::ScanReport)->Vec<Runtime>{
     let mut out=vec![];let mut seen=HashSet::new();
-    if let Some(path)=std::env::var_os("PATH") {for name in ["wine","wine64"] {if let Some(p)=std::env::split_paths(&path).filter(|p|p.is_absolute()).find_map(|dir|executable(&dir.join(name))){if seen.insert(p.clone()){out.push(Runtime{id:format!("wine:{}",p.display()),name:format!("System {name}"),kind:"wine".into(),binary:p,steam:None});}}}}
-    if let Some(p)=executable(Path::new("/usr/lib/wine/wine64")){if seen.insert(p.clone()){out.push(Runtime{id:format!("wine:{}",p.display()),name:"System Wine64".into(),kind:"wine".into(),binary:p,steam:None});}}
+    if let Some(path)=std::env::var_os("PATH") {for name in ["wine","wine64"] {if let Some(p)=std::env::split_paths(&path).filter(|p|p.is_absolute()).find_map(|dir|executable(&dir.join(name))){if seen.insert(p.clone()){out.push(Runtime{proton:None,id:format!("wine:{}",p.display()),name:format!("System {name}"),kind:"wine".into(),binary:p,steam:None});}}}}
+    if let Some(p)=executable(Path::new("/usr/lib/wine/wine64")){if seen.insert(p.clone()){out.push(Runtime{proton:None,id:format!("wine:{}",p.display()),name:"System Wine64".into(),kind:"wine".into(),binary:p,steam:None});}}
     for tool in &scan.compatibility_tools {
         let path=Path::new(&tool.path);
         // Flatpak runtimes must run inside their container; do not execute them on the host.
         if path.components().any(|c|c.as_os_str()==".var"){continue;}
         let Some(binary)=executable(&path.join("proton")) else{continue};
+        if path.join(".proton-medic-managed").is_file() {
+            if let Some(umu)=crate::proton_manager::umu(){
+                if seen.insert(binary.clone()){out.push(Runtime{proton:Some(path.to_path_buf()),id:format!("proton:{}",binary.display()),name:format!("{} (UMU)",tool.name),kind:"proton".into(),binary:umu,steam:None});}
+            }
+            continue;
+        }
         let Some(steam)=scan.installations.iter().find(|i|!i.kind.eq_ignore_ascii_case("flatpak")) else{continue};
-        if seen.insert(binary.clone()){out.push(Runtime{id:format!("proton:{}",binary.display()),name:tool.name.clone(),kind:"proton".into(),binary,steam:Some(PathBuf::from(&steam.path))});}
+        if seen.insert(binary.clone()){out.push(Runtime{proton:None,id:format!("proton:{}",binary.display()),name:tool.name.clone(),kind:"proton".into(),binary,steam:Some(PathBuf::from(&steam.path))});}
     }
     out
 }
@@ -119,12 +125,13 @@ fn command(r:&Runtime,dir:&Path,exe:&Path,logs:&Path)->Command{
 }
 fn command_with_prefix(r:&Runtime,dir:&Path,prefix:&Path,exe:&Path,_logs:&Path)->Command{
     use std::os::unix::process::CommandExt;
-    let mut cmd=crate::font_runtime::child_command(&r.binary);if r.kind=="proton"{cmd.arg("run");}
+    let mut cmd=crate::font_runtime::child_command(&r.binary);if r.kind=="proton" && r.proton.is_none(){cmd.arg("run");}
     cmd.arg(exe).current_dir(exe.parent().unwrap_or(dir)).env("WINEPREFIX",prefix)
         .env("STEAM_COMPAT_DATA_PATH",prefix.parent().unwrap_or(dir)).env("PROTON_LOG","0").env_remove("PROTON_LOG_DIR")
         .env("DXVK_LOG_LEVEL","warn").env("DXVK_NVAPI_LOG_LEVEL","warn").env("VKD3D_DEBUG","warn").env("VKD3D_SHADER_DEBUG","warn")
         .env_remove("WINEARCH").env("WINEDEBUG","-all,+err,+warn").env("SteamAppId","0").env("SteamGameId","0")
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if let Some(proton)=&r.proton{cmd.env("PROTONPATH",proton).env("GAMEID","umu-default");}
     cmd.process_group(0);
     if let Some(steam)=&r.steam{cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH",steam);}cmd
 }
@@ -472,7 +479,7 @@ mod tests{
         assert!(select_executable("none".into(),"/none".into(),false).unwrap_err().contains("Approve"));
     }
     #[test] fn command_preserves_spaces_and_uses_explicit_profile_environment(){
-        let r=Runtime{id:"fixture".into(),name:"Fixture".into(),kind:"proton".into(),binary:PathBuf::from("/fixture/proton"),steam:Some(PathBuf::from("/fixture/Steam"))};
+        let r=Runtime{proton:None,id:"fixture".into(),name:"Fixture".into(),kind:"proton".into(),binary:PathBuf::from("/fixture/proton"),steam:Some(PathBuf::from("/fixture/Steam"))};
         let cmd=command(&r,Path::new("/managed/123"),Path::new("/Downloads/Game Setup.exe"),Path::new("/managed/123/logs/1"));
         assert_eq!(cmd.get_args().collect::<Vec<_>>(),vec![std::ffi::OsStr::new("run"),std::ffi::OsStr::new("/Downloads/Game Setup.exe")]);
         let vars:HashMap<_,_>=cmd.get_envs().collect();assert_eq!(vars[std::ffi::OsStr::new("WINEPREFIX")],Some(std::ffi::OsStr::new("/managed/123/compatdata/pfx")));
@@ -482,7 +489,7 @@ mod tests{
     #[test] fn fake_runtime_executes_installer_protocol_and_persists_exit(){
         let f=Fixture::new();let id=stamp().unwrap();let dir=f.0.join(&id);directory(&dir,true).unwrap();let exe=f.0.join("Setup With Spaces.exe");pe(&exe);
         let fake=f.0.join("fake-wine");fs::write(&fake,"#!/bin/sh\nmkdir -p \"$WINEPREFIX/drive_c/Game\"\ncp \"$1\" \"$WINEPREFIX/drive_c/Game/game.exe\"\nprintf 'unhandled exception fixture\\n' >&2\nexit 7\n").unwrap();fs::set_permissions(&fake,fs::Permissions::from_mode(0o700)).unwrap();
-        let r=Runtime{id:"fixture".into(),name:"Fake Wine".into(),kind:"wine".into(),binary:fake,steam:None};let rec=record(&id);save(&dir,&rec).unwrap();
+        let r=Runtime{proton:None,id:"fixture".into(),name:"Fake Wine".into(),kind:"wine".into(),binary:fake,steam:None};let rec=record(&id);save(&dir,&rec).unwrap();
         let started=spawn(dir.clone(),rec,r,exe,true).unwrap();assert_eq!(started.state,"installer-running");
         let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);
         while JOBS.lock().unwrap().contains(&id){assert!(std::time::Instant::now()<deadline);std::thread::sleep(std::time::Duration::from_millis(10));}
@@ -493,7 +500,7 @@ mod tests{
     }
     #[test] fn missing_runtime_is_recorded_as_failure_without_claiming_installation(){
         let f=Fixture::new();let id=stamp().unwrap();let dir=f.0.join(&id);directory(&dir,true).unwrap();let exe=f.0.join("setup.exe");pe(&exe);
-        let r=Runtime{id:"none".into(),name:"Missing".into(),kind:"wine".into(),binary:f.0.join("absent"),steam:None};
+        let r=Runtime{proton:None,id:"none".into(),name:"Missing".into(),kind:"wine".into(),binary:f.0.join("absent"),steam:None};
         let mut rec=record(&id);rec.runtime_id="none".into();save(&dir,&rec).unwrap();let result=spawn(dir.clone(),rec,r,exe,true).unwrap();assert_eq!(result.state,"start-failed");assert!(result.game_exe.is_none());assert!(load(&f.0,&id).is_ok());
         let (_,done)=load(&f.0,&id).unwrap();let history=history::list_in(&dir,&done,false).unwrap();assert_eq!(history.entries[0].state,"start-failed");assert_eq!(history.entries[0].exit_code,None);
     }
@@ -523,7 +530,7 @@ mod tests{
     }
     #[test] fn imported_game_uses_existing_prefix_in_runtime_environment(){
         let mut r=record("123");r.prefix_path=Some("/existing/My Game/pfx".into());
-        let rt=Runtime{id:"fixture".into(),name:"Fixture".into(),kind:"proton".into(),binary:PathBuf::from("/fixture/proton"),steam:None};
+        let rt=Runtime{proton:None,id:"fixture".into(),name:"Fixture".into(),kind:"proton".into(),binary:PathBuf::from("/fixture/proton"),steam:None};
         let prefix=prefix_path(Path::new("/managed/123"),&r);
         let cmd=command_with_prefix(&rt,Path::new("/managed/123"),&prefix,Path::new("/games/Wukong/b1.exe"),Path::new("/logs"));
         let vars:HashMap<_,_>=cmd.get_envs().collect();
@@ -581,20 +588,27 @@ mod tests{
     #[test] fn launch_uses_latest_locked_name_and_hidden_state() {
         let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();
         let previous=record(id);let mut latest=previous.clone();latest.name="Renamed".into();latest.hidden=true;save(&dir,&latest).unwrap();
-        let rt=Runtime{id:"fixture".into(),name:"Fixture".into(),kind:"wine".into(),binary:PathBuf::from("/fixture"),steam:None};
+        let rt=Runtime{proton:None,id:"fixture".into(),name:"Fixture".into(),kind:"wine".into(),binary:PathBuf::from("/fixture"),steam:None};
         let _lock=lock_profile(&dir).unwrap();let fresh=locked_record(&dir,&previous,&rt,Path::new("/setup.exe"),true).unwrap();
         assert_eq!(fresh.name,"Renamed");assert!(fresh.hidden);
     }
     #[test] fn launch_stops_if_executable_runtime_or_prefix_changed_before_lock() {
         let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let previous=record(id);
-        let rt=Runtime{id:"fixture".into(),name:"Fixture".into(),kind:"wine".into(),binary:PathBuf::from("/fixture"),steam:None};
+        let rt=Runtime{proton:None,id:"fixture".into(),name:"Fixture".into(),kind:"wine".into(),binary:PathBuf::from("/fixture"),steam:None};
         for mut latest in [previous.clone(),previous.clone(),previous.clone()] .into_iter().enumerate() {
             match latest.0 {0=>latest.1.game_exe=Some("/different.exe".into()),1=>latest.1.runtime_id="new".into(),_=>latest.1.prefix_path=Some("/new/pfx".into())}
             save(&dir,&latest.1).unwrap();assert!(locked_record(&dir,&previous,&rt,Path::new("/setup.exe"),true).unwrap_err().contains("settings changed"));
         }
     }
 
-    fn fixture_runtime(id:&str)->Result<Runtime,String>{Ok(Runtime{id:id.into(),name:id.into(),kind:"wine".into(),binary:PathBuf::from("/fixture/wine"),steam:None})}
+    #[test] fn umu_launch_preserves_selected_proton_prefix_and_literal_arguments(){
+        let rt=Runtime{proton:Some(PathBuf::from("/fixture/GE-Proton")),id:"fixture".into(),name:"GE".into(),kind:"proton".into(),binary:PathBuf::from("/fixture/umu-run"),steam:None};
+        let f=Fixture::new();let mut r=record("123");r.launch_arguments=vec!["two words".into(),"$HOME".into()];
+        let cmd=command_for_record(&rt,&f.0,Path::new("/prefix/pfx"),Path::new("/games/game.exe"),&f.0,&r,false);
+        assert_eq!(cmd.get_program(),"/fixture/umu-run");assert_eq!(cmd.get_args().collect::<Vec<_>>(),vec!["/games/game.exe","two words","$HOME"]);
+        let env=cmd.get_envs().collect::<std::collections::HashMap<_,_>>();assert_eq!(env.get(std::ffi::OsStr::new("PROTONPATH")),Some(&Some(std::ffi::OsStr::new("/fixture/GE-Proton"))));assert_eq!(env.get(std::ffi::OsStr::new("WINEPREFIX")),Some(&Some(std::ffi::OsStr::new("/prefix/pfx"))));
+    }
+    fn fixture_runtime(id:&str)->Result<Runtime,String>{Ok(Runtime{proton:None,id:id.into(),name:id.into(),kind:"wine".into(),binary:PathBuf::from("/fixture/wine"),steam:None})}
     #[test] fn launch_settings_backup_reset_and_stale_edit_preserve_profile_and_prefix(){
         let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let mut r=record(id);r.game_exe=Some("/game.exe".into());save(&dir,&r).unwrap();
         let original=settings(&r);let changed=LaunchSettings{runtime_id:"other".into(),arguments:vec!["--name=two words".into(),"$(touch /tmp/never)".into()],working_directory:Some(f.0.to_string_lossy().into())};

@@ -181,11 +181,12 @@ pub(crate) fn write_config(path: &Path, bytes: &[u8], updated: &[u8], guard_stea
 
 // Use the custom tool's manifest name, not its directory/display name.
 // Guessing this ID can leave a game unlaunchable in Steam.
-fn internal_id(name:&str,path:&Path)->Result<String,String>{
+pub(crate) fn internal_id(name:&str,path:&Path)->Result<String,String>{
     let file=path.join("compatibilitytool.vdf");
     if file.is_file() {
         let parsed=scanner::load_vdf(&file)?;
-        let tools=scanner::obj_get(&parsed,"compat_tools").ok_or("Missing compat_tools in tool manifest")?;
+        let container=scanner::obj_get(&parsed,"compatibilitytools").unwrap_or(&parsed);
+        let tools=scanner::obj_get(container,"compat_tools").ok_or("Missing compat_tools in tool manifest")?;
         let names:Vec<&String>=tools.iter().filter_map(|(name,value)|
             matches!(value,scanner::Value::Object(_)).then_some(name)).collect();
         if names.len()!=1 {return Err("Cannot identify unique compatibility tool ID".into());}
@@ -227,6 +228,26 @@ pub(crate) fn config_for_library(scan:&scanner::ScanReport,library:&str)->Result
 
 pub fn select(app_id:String,library_path:String,confirmed:bool)->Result<AutoSelection,String>{
     select_tracked(app_id, library_path, confirmed, None).map(|(result, _)| result)
+}
+
+pub fn select_manual(app_id:String,library_path:String,tool_path:String,confirmed:bool)->Result<AutoSelection,String>{
+    if !confirmed{return Err("Approve changing this game's Proton version".into());}
+    let _lock=CONFIG_LOCK.lock().map_err(|_|"Configuration lock unavailable")?;
+    repairs::require_steam_closed()?;
+    let scan=scanner::scan();
+    let game=scan.games.iter().find(|g|g.app_id==app_id&&g.library_path==library_path).ok_or("Game is no longer in this Steam library")?;
+    let selected=scan.compatibility_tools.iter().find(|t|t.path==tool_path).ok_or("Selected Proton is no longer installed")?;
+    let config=config_for_library(&scan,&library_path)?;
+    let steam=config.parent().and_then(Path::parent).ok_or("Steam root unavailable")?;
+    let tool=fs::canonicalize(&tool_path).map_err(|e|e.to_string())?;
+    let mut allowed=vec![steam.join("compatibilitytools.d")];
+    allowed.extend(scanner::libraries_from_vdf(steam,&mut vec![]).into_iter().map(|p|p.join("steamapps/common")));
+    if !allowed.iter().filter_map(|p|fs::canonicalize(p).ok()).any(|p|tool.starts_with(p)){return Err("Choose a Proton installed for this game's Steam installation".into());}
+    let id=internal_id(&selected.name,&tool)?;
+    let (backup_path,changed)=replace_config(&config,&app_id,&id,true)?;
+    crate::inventory::refresh();
+    Ok(AutoSelection{game_name:game.name.clone(),app_id,tool_name:selected.name.clone(),tool_id:id,backup_path,changed,
+        message:if changed{"Proton selected for this game. Previous configuration backed up. Open Steam and test the game."}else{"This Proton is already selected. No configuration changes were needed."}.into()})
 }
 
 pub(crate) struct ConfigUndo { path: PathBuf, app_id: String, before: Vec<u8>, after: Vec<u8> }

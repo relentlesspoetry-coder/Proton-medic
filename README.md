@@ -4,12 +4,13 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.19 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.20 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
 - Browse Steam and Windows games together in My Games, with source filters, saved favorites, and recently played sorting.
 - Find native and Flatpak Steam installations, game libraries, and installed Proton tools.
+- Download official GE-Proton releases with checksum verification, progress, and cancellation. Keep versions side by side and choose one per game.
 - Analyze Proton logs and check Vulkan and system information.
 - Recommend installed compatibility tools based on game settings and log findings.
 - Launch selected Steam games and inspect new logs.
@@ -34,7 +35,7 @@ The update button appears at the top right on every page, with the installed ver
 
 ### Steam Deck / SteamOS
 
-1. Switch to **Desktop Mode** and download `proton-medic_0.6.19_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
+1. Switch to **Desktop Mode** and download `proton-medic_0.6.20_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
 2. Move it to a permanent folder such as `~/Applications`. Game shortcuts refer to this location.
 3. In Dolphin, open **Properties → Permissions**, enable **Is executable**, then open the AppImage.
 
@@ -43,20 +44,32 @@ GTK, WebKitGTK, and application fonts travel with the AppImage. No DEB installat
 If the system reports that FUSE is missing, run it without FUSE from Konsole:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.19_amd64.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.20_amd64.AppImage"
 ```
 
-The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35 or newer. Graphics drivers and the desktop session come from the operating system. Steam and an installed Proton or Wine runtime are required for their respective game-launching features; the application does not install or replace graphics drivers or game runtimes.
+The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35 or newer. Graphics drivers and the desktop session come from the operating system. Steam and an installed Proton or Wine runtime are required for their respective game-launching features; the application does not install or replace graphics drivers. GE-Proton downloads are available from Proton versions; Valve Proton and Proton Experimental remain managed by Steam.
 
 ### Ubuntu / Debian-compatible desktops
 
 Download the amd64 DEB and install it using a package manager so that dependencies are installed too:
 
 ```bash
-sudo apt install ./proton-medic_0.6.19_amd64.deb
+sudo apt install ./proton-medic_0.6.20_amd64.deb
 ```
 
 The DEB requires an Ubuntu 24.04-compatible x86_64 system with glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. Use the AppImage on SteamOS. Existing installations can check for signed updates in the app.
+
+## Proton versions
+
+Open **Proton versions → Load latest releases**, choose a detected native or Flatpak Steam installation and GE-Proton version, approve the download, and select **Download and install**. **Older releases** loads previous versions. Downloads come from GloriousEggroll's official GitHub repository and are checked against the release's SHA-512 checksum before extraction. Existing versions are never replaced.
+
+Keep Proton Medic open until installation finishes. Progress and cancellation remain available on the Proton versions page. Restart Steam afterward so it discovers the new compatibility tool.
+
+For a Steam game, open **My Games → game → Proton**, choose an installed version, close Steam, and approve **Use selected Proton**. The previous Steam configuration is backed up. Installing a version does not automatically change any game's selection.
+
+For a Windows game, open **Game settings and logs → Edit launch settings**. Downloaded GE-Proton versions in native Steam use **umu-launcher** (`umu-run` on PATH), as required for supported GE-Proton launches outside Steam. Install UMU through your distribution first; these versions are not offered to Windows games until UMU is available. The saved prefix, executable, working directory, and literal arguments are retained. Flatpak Steam downloads are available to Flatpak Steam only. Existing unmanaged runtimes remain available.
+
+Valve's official Proton and Proton Experimental are installed and updated through **Steam → Library → Tools**. GE-Proton is a community build, and newer versions are not guaranteed to work better for every game.
 
 ## Unified library
 
@@ -133,3 +146,4 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 
 - [v0.6.18 changes](RELEASE-v0.6.18.md)
 - [v0.6.19 changes](RELEASE-v0.6.19.md)
+- [v0.6.20 changes](RELEASE-v0.6.20.md)

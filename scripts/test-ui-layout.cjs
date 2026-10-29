@@ -34,6 +34,10 @@ let browser;
   window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
    if(cmd==='prepare_support_report')return {token:1,content:JSON.stringify({appVersion:'0.6.19',pathsRedacted:args.options.redactPaths,system:{os:'Zorin OS',architecture:'x86_64'},steam:{games:[{name:'Black Myth: Wukong',installPath:'[redacted path]',status:'review'}]},windows:{games:[{name:'Black Myth: Wukong',runtime:'GE-Proton10-34',exitCode:7}]}},null,2)+'\n'};
    if(cmd==='save_support_report')return '/home/player/Documents/proton-medic-report.json';
+   if(cmd==='list_proton_versions')return {installations:scan.installations,tools:scan.compatibilityTools,status:window.__PM_PROTON_STATUS??null,umuAvailable:false};
+   if(cmd==='fetch_proton_releases')return [{tag:'GE-Proton11-11',name:'GE-Proton11-11-x86_64.tar.gz',size:564789552},{tag:'GE-Proton11-10',name:'GE-Proton11-10-x86_64.tar.gz',size:566144788}];
+   if(cmd==='install_proton_version'){window.__PM_PROTON_STATUS={phase:'downloading',tag:args.tag,downloaded:200000000,total:564789552,message:'Downloading from the official GE-Proton release.'};return;}
+   if(cmd==='cancel_proton_download'){window.__PM_PROTON_STATUS={phase:'canceled',tag:'GE-Proton11-11',downloaded:0,total:0,message:'Download canceled. Installed versions are unchanged.'};return;}
    if(cmd==='scan_steam')return scan;
    if(cmd==='analyze_diagnostics')return {games:reports,system:{os:'Zorin OS',kernel:'Linux 6.14',arch:'x86_64',gpuDevices:['NVIDIA GeForce RTX 3060'],vulkaninfoPath:'/usr/bin/vulkaninfo',icdManifests:['nvidia_icd.json'],notes:[]},warnings:[]};
    if(cmd==='recommend_proton')return {games:games.map(g=>({appId:g.appId,libraryPath:g.libraryPath,gameName:g.name,status:'try-version',suggestedTool:'Proton Experimental',configuredTool:'GE-Proton10-34',reason:'A different installed version may help with the recorded exception.',nextStep:'Back up your selection, then test the game.',confidence:'tentative',alternatives:['GE-Proton10-34'],evidence:['wine-exception']})),note:''};
@@ -55,7 +59,7 @@ let browser;
  const results=[];
  for(const [width,height] of [[1440,900],[1200,800],[850,620],[1280,800],[390,844]]){
   await page.setViewportSize({width,height});await page.goto(address);await page.getByText('6',{exact:true}).waitFor();
-  for(const name of ['Home','My Games','Windows Games','Fixes','System Check','Settings']){
+  for(const name of ['Home','My Games','Windows Games','Proton versions','Fixes','System Check','Settings']){
    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).click();await page.waitForTimeout(100);
    const overflow=await page.evaluate(()=>({page:document.documentElement.scrollWidth>innerWidth+1,elements:[...document.querySelectorAll('main button,main input,main select,main summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width&&r.height&&(r.right>innerWidth+1||r.left<0)}).map(el=>el.textContent.slice(0,90))}));
    if(overflow.page||overflow.elements.length)throw Error(JSON.stringify({width,name,overflow}));
@@ -69,6 +73,19 @@ let browser;
    }
   }
  }
+ await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Proton versions',exact:true}).click();
+ await page.getByRole('button',{name:'Load latest releases',exact:true}).click();
+ await page.getByLabel('I approve downloading and installing this GE-Proton release.',{exact:true}).check();
+ await page.getByRole('button',{name:'Download and install',exact:true}).click();
+ await page.getByRole('progressbar',{name:'Proton download progress'}).waitFor();
+ for(const [width,height] of [[1280,800],[390,844]]){
+  await page.setViewportSize({width,height});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Proton download overflow: '+width);
+  const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width,name:'Proton manager download',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+  if(width===1280)await page.screenshot({path:path.join(output,'proton-manager.jpg'),fullPage:true,type:'jpeg',quality:80});
+ }
+ await page.getByRole('button',{name:'Cancel download',exact:true}).click();
  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Settings',exact:true}).click();
  await page.getByRole('button',{name:'Create report',exact:true}).click();
  await page.getByLabel('Recent Windows launch history',{exact:true}).check();
@@ -165,7 +182,7 @@ let browser;
  }
  await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg','support-report.jpg']) {
+ for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg','support-report.jpg','proton-manager.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();

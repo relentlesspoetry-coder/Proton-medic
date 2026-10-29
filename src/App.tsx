@@ -1,3 +1,5 @@
+import { ProtonManager } from './ProtonManager';
+import { GameProtonPicker } from './GameProtonPicker';
 import { SupportReport } from './SupportReport';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -22,11 +24,12 @@ import { GameIcon } from './GameIcon';
 import { LaunchTest } from './LaunchTest';
 import programLogo from './assets/proton-medic-logo.webp';
 
-type Page = 'windows' | 'home' | 'games' | 'fixes' | 'system' | 'settings';
+type Page = 'protons' | 'windows' | 'home' | 'games' | 'fixes' | 'system' | 'settings';
 const MENU: { page: Page; label: string; icon: typeof Home }[] = [
   { page: 'home', label: 'Home', icon: Home },
   { page: 'games', label: 'My Games', icon: Gamepad2 },
   { page: 'windows', label: 'Windows Games', icon: HardDrive },
+  { page: 'protons', label: 'Proton versions', icon: Layers },
   { page: 'fixes', label: 'Fixes', icon: Wrench },
   { page: 'system', label: 'System Check', icon: Monitor },
   { page: 'settings', label: 'Settings', icon: Settings2 },
@@ -223,6 +226,7 @@ export default function App() {
           </div>
             </> },
             { id: 'proton', label: 'Proton', content: <>
+          <GameProtonPicker key={gameKey(selectedGame)} game={selectedGame} tools={scan?.compatibilityTools ?? []} onChanged={() => void scanGames()} onManage={() => setPage('protons')}/>
           <ProtonAdvisor advice={advice?.games.find(a => a.appId === selectedGame.appId && a.libraryPath === selectedGame.libraryPath)} loading={advising}
             applying={autoBusy} message={autoMessage} onApply={() => void selectAutomatically(selectedGame.appId, selectedGame.libraryPath)}/>
             </> },
@@ -244,6 +248,7 @@ export default function App() {
 
       {page === 'fixes' && <><div className="pm-page-title"><div><h1>Fixes</h1><p>Choose a game to inspect evidence and optional repair actions.</p></div></div><section className="pm-section"><div className="pm-section-heading"><div><h2>Games needing attention</h2><p>Review log findings before trying a repair. Automatic fixes follow the log-monitor setting.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/> Check logs again</button></div>{problems.length ? <PagedList items={problems} render={g => <GameRow key={gameKey(g)} game={g} diagnostic={issueByGame.get(gameKey(g))} onClick={() => openGame(g)}/>}/> : <Empty title="No problems identified yet" detail="You can still open My Games to view backup and repair options."/>}</section><div className="pm-callout"><ShieldCheck size={19}/><div><strong>Only approved changes</strong><p>Game data is archived instead of deleted. Close Steam before repairing or restoring. All backups remain on the same Steam library drive.</p></div></div></>}
 
+      {page === 'protons' && <ProtonManager onChanged={() => void scanGames()}/>}
       {page === 'system' && <><div className="pm-page-title"><div><h1>System Check</h1><p>Check whether your Linux system has the tools games need.</p></div><button className="pm-button pm-button-primary" disabled={probing} onClick={() => void checkVulkan()}><Monitor size={18}/>{probing ? 'Checking Vulkan...' : 'Check Vulkan'}</button></div>
         <section className="pm-section"><h2>Your system at a glance</h2>{!report ? <Empty title="System information isn't available yet" detail="Select Check Logs & System to inspect GPU and driver information."/> : <div className="pm-check-list"><CheckRow label="Linux system" detail={report.system.os} state="ok"/><CheckRow label="Kernel" detail={report.system.kernel} state="neutral"/><CheckRow label="CPU architecture" detail={report.system.arch} state="neutral"/><CheckRow label="Graphics devices" detail={`${report.system.gpuDevices.length} device(s) detected`} state={report.system.gpuDevices.length ? 'ok' : 'warning'}/><CheckRow label="Vulkan utility" detail={report.system.vulkaninfoPath ? 'vulkaninfo is available' : 'vulkaninfo was not found in PATH'} state={report.system.vulkaninfoPath ? 'ok' : 'warning'}/><CheckRow label="Vulkan driver manifests" detail={`${report.system.icdManifests.length} found in checked locations`} state={report.system.icdManifests.length ? 'ok' : 'warning'}/></div>}
           <div className="pm-system-actions"><button className="pm-button pm-button-secondary" onClick={() => void analyzeLogs()} disabled={analyzing}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/>{analyzing ? 'Reading logs...' : 'Check Logs & System'}</button></div>

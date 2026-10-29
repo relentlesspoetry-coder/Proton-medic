@@ -66,6 +66,8 @@ jobs:
         run: python3 scripts/test-release-ready.py
       - name: Native Rust unit tests (disposable game fixtures)
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=2
+      - name: Official GE-Proton download and installation check
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml proton_manager::tests::official_ge_release_installs_with_verification -- --ignored --exact --nocapture --test-threads=1
       - name: Frontend typecheck and production bundle
         run: npm run build
       - name: Tauri native Linux build

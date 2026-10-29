@@ -2488,13 +2488,17 @@ dependencies = [
 
 [[package]]
 name = "proton-medic"
-version = "0.6.19"
+version = "0.6.20"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "ico",
  "libc",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2",
+ "tar",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
