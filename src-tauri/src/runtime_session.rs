@@ -176,37 +176,63 @@ struct LaunchSpec {
     args: Vec<std::ffi::OsString>,
     env: Vec<(std::ffi::OsString, Option<std::ffi::OsString>)>,
     cwd: Option<std::path::PathBuf>,
+    startup_fd: i32,
 }
 pub(crate) fn spawn_runtime(command: &mut std::process::Command) -> io::Result<Child> {
     // Unit fixtures exercise command construction; packaged-binary tests exercise re-exec.
     #[cfg(test)] { return command.spawn(); }
     #[cfg(not(test))] {
-        use std::os::unix::process::CommandExt;
-        fs::metadata(command.get_program())?;
+        use std::os::unix::{process::CommandExt, net::UnixStream};
+        let (mut reader, writer) = UnixStream::pair()?;
+        let startup_fd = writer.as_raw_fd();
         let spec = LaunchSpec {
             program: command.get_program().into(), args: command.get_args().map(Into::into).collect(),
             env: command.get_envs().map(|(k,v)|(k.into(),v.map(Into::into))).collect(),
-            cwd: command.get_current_dir().map(Into::into),
+            cwd: command.get_current_dir().map(Into::into), startup_fd,
         };
         // Inherit bundle libraries for our helper; apply host overrides only to the runtime.
-        std::process::Command::new(std::env::current_exe()?)
-            .arg("--supervise-runtime").arg(serde_json::to_string(&spec)?)
+        let mut helper = std::process::Command::new(std::env::current_exe()?);
+        helper.arg("--supervise-runtime").arg(serde_json::to_string(&spec)?)
             .stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped()).process_group(0).spawn()
+            .stderr(std::process::Stdio::piped()).process_group(0);
+        // Only this descriptor crosses re-exec. The helper closes it before game execution.
+        unsafe { helper.pre_exec(move || {
+            if libc::fcntl(startup_fd, libc::F_SETFD, 0) < 0 { return Err(io::Error::last_os_error()); }
+            Ok(())
+        }); }
+        let mut child = helper.spawn()?;
+        drop(writer);
+        let mut acknowledgment=String::new();
+        let read=reader.read_to_string(&mut acknowledgment);
+        if read.is_ok() && acknowledgment=="started" { return Ok(child); }
+        // Never release ownership while an unacknowledged supervisor may still be alive.
+        let _=child.wait();
+        read?;
+        Err(io::Error::other(if acknowledgment.is_empty() { "Runtime supervisor could not start".into() } else { acknowledgment }))
     }
 }
 pub fn handle_cli() -> Option<i32> {
     if std::env::args_os().nth(1).as_deref() != Some(std::ffi::OsStr::new("--supervise-runtime")) { return None; }
+    let mut acknowledgment: Option<File> = None;
     let result = (|| -> Result<i32, Box<dyn std::error::Error>> {
+        use std::os::fd::FromRawFd;
         let args: Vec<_> = std::env::args_os().collect();
         if args.len() != 3 { return Err("Invalid supervisor arguments".into()); }
         let spec: LaunchSpec = serde_json::from_str(args[2].to_str().ok_or("Invalid launch specification")?)?;
+        if spec.startup_fd < 3 || unsafe { libc::fcntl(spec.startup_fd,libc::F_GETFD) } < 0 { return Err("Invalid supervisor descriptor".into()); }
+        acknowledgment=Some(unsafe { File::from_raw_fd(spec.startup_fd) });
+        // Do not let a runtime or detached child keep the startup acknowledgment open.
+        if unsafe { libc::fcntl(spec.startup_fd,libc::F_SETFD,libc::FD_CLOEXEC) } < 0 { return Err(io::Error::last_os_error().into()); }
         if unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong) } != 0 { return Err(io::Error::last_os_error().into()); }
         let mut command = std::process::Command::new(spec.program);
         command.args(spec.args);
         for (key,value) in spec.env { if let Some(value)=value { command.env(key,value); } else { command.env_remove(key); } }
         if let Some(cwd)=spec.cwd { command.current_dir(cwd); }
         let child = command.spawn()?;
+        if let Some(mut acknowledgment)=acknowledgment.take() {
+            // A disconnected caller must not stop supervision of a game already started.
+            let _=acknowledgment.write_all(b"started");
+        }
         let primary = child.id() as libc::pid_t;
         let mut exit_code = 125;
         loop {
@@ -225,5 +251,8 @@ pub fn handle_cli() -> Option<i32> {
         }
         Ok(exit_code)
     })();
-    Some(match result { Ok(code)=>code, Err(error)=>{ eprintln!("Runtime supervisor: {error}");125 } })
+    Some(match result { Ok(code)=>code, Err(error)=>{
+        if let Some(mut acknowledgment)=acknowledgment.take() { let _=write!(acknowledgment,"{error}"); }
+        eprintln!("Runtime supervisor: {error}");125
+    } })
 }
