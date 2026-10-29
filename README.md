@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.18 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.19 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -24,6 +24,7 @@ Proton Medic helps Linux players diagnose game problems, manage installed Proton
 - View recent Windows game and installer runs with runtime names, exit results, and log error summaries.
 - Rename Windows game profiles, remove them from the list, and restore them without deleting game files.
 - Display embedded Windows game icons and locally cached Steam artwork.
+- Preview and export a local troubleshooting report with personal paths redacted by default.
 - Check for signed GitHub updates when requested.
 - Use a blue glass interface with bundled fonts.
 
@@ -33,7 +34,7 @@ The update button appears at the top right on every page, with the installed ver
 
 ### Steam Deck / SteamOS
 
-1. Switch to **Desktop Mode** and download `proton-medic_0.6.18_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
+1. Switch to **Desktop Mode** and download `proton-medic_0.6.19_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
 2. Move it to a permanent folder such as `~/Applications`. Game shortcuts refer to this location.
 3. In Dolphin, open **Properties → Permissions**, enable **Is executable**, then open the AppImage.
 
@@ -42,7 +43,7 @@ GTK, WebKitGTK, and application fonts travel with the AppImage. No DEB installat
 If the system reports that FUSE is missing, run it without FUSE from Konsole:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.18_amd64.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.19_amd64.AppImage"
 ```
 
 The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35 or newer. Graphics drivers and the desktop session come from the operating system. Steam and an installed Proton or Wine runtime are required for their respective game-launching features; the application does not install or replace graphics drivers or game runtimes.
@@ -52,7 +53,7 @@ The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35
 Download the amd64 DEB and install it using a package manager so that dependencies are installed too:
 
 ```bash
-sudo apt install ./proton-medic_0.6.18_amd64.deb
+sudo apt install ./proton-medic_0.6.19_amd64.deb
 ```
 
 The DEB requires an Ubuntu 24.04-compatible x86_64 system with glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. Use the AppImage on SteamOS. Existing installations can check for signed updates in the app.
@@ -64,6 +65,14 @@ The DEB requires an Ubuntu 24.04-compatible x86_64 system with glibc 2.39 or new
 Choose **Recently played** to sort by available Steam manifest dates and recorded Windows game launches. Unknown dates appear last; installer runs and failed runtime starts do not replace a Windows game’s previous launch date. These dates describe recorded activity, not verified gameplay or playtime.
 
 Open a Steam game for diagnostics and repair tools, or a Windows game for its existing launch controls, settings, history, monitoring, and shortcuts. **Back to My Games** preserves the search, filters, and sorting. **Windows Games** remains available for installing, adding, and restoring profiles.
+
+## Troubleshooting reports
+
+Open **Settings → Create report**. Choose Steam diagnostics, Windows game status, and optional recent Windows launch history, then select **Generate preview**. System details are always included. Review the exact JSON contents, approve saving, and choose a new `.json` file. Reports stay local until you share them yourself.
+
+Personal paths are redacted by default: any path-bearing text field is replaced in full. Game names, runtime names, and selected launch timestamps remain visible. Turning redaction off includes the selected paths. Raw logs, log excerpts, launch arguments, environment variables, account data, removed profiles, and resource samples are excluded in either mode.
+
+Reports include at most 100 Steam games, 50 visible Windows games, and the latest 20 recorded runs per Windows game. Omitted counts and unavailable data are marked. Steam inventory may be cached for up to 30 seconds; log findings are collected when generating the preview. Generating a report does not run a Vulkan probe or launch a game. Saved reports use the reviewed snapshot and never replace an existing file.
 
 ## Windows game launchers
 
@@ -123,3 +132,4 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.17 changes](RELEASE-v0.6.17.md)
 
 - [v0.6.18 changes](RELEASE-v0.6.18.md)
+- [v0.6.19 changes](RELEASE-v0.6.19.md)

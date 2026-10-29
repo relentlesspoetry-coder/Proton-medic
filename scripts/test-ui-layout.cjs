@@ -32,6 +32,8 @@ let browser;
   windows.games.push({...windows.games[0],id:'789-123',name:'Game Setup',gameExe:null,state:'installer-exited'});
   window.__PM_FIXTURE_WINDOWS=windows;
   window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
+   if(cmd==='prepare_support_report')return {token:1,content:JSON.stringify({appVersion:'0.6.19',pathsRedacted:args.options.redactPaths,system:{os:'Zorin OS',architecture:'x86_64'},steam:{games:[{name:'Black Myth: Wukong',installPath:'[redacted path]',status:'review'}]},windows:{games:[{name:'Black Myth: Wukong',runtime:'GE-Proton10-34',exitCode:7}]}},null,2)+'\n'};
+   if(cmd==='save_support_report')return '/home/player/Documents/proton-medic-report.json';
    if(cmd==='scan_steam')return scan;
    if(cmd==='analyze_diagnostics')return {games:reports,system:{os:'Zorin OS',kernel:'Linux 6.14',arch:'x86_64',gpuDevices:['NVIDIA GeForce RTX 3060'],vulkaninfoPath:'/usr/bin/vulkaninfo',icdManifests:['nvidia_icd.json'],notes:[]},warnings:[]};
    if(cmd==='recommend_proton')return {games:games.map(g=>({appId:g.appId,libraryPath:g.libraryPath,gameName:g.name,status:'try-version',suggestedTool:'Proton Experimental',configuredTool:'GE-Proton10-34',reason:'A different installed version may help with the recorded exception.',nextStep:'Back up your selection, then test the game.',confidence:'tentative',alternatives:['GE-Proton10-34'],evidence:['wine-exception']})),note:''};
@@ -67,6 +69,22 @@ let browser;
    }
   }
  }
+ await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Settings',exact:true}).click();
+ await page.getByRole('button',{name:'Create report',exact:true}).click();
+ await page.getByLabel('Recent Windows launch history',{exact:true}).check();
+ await page.getByRole('button',{name:'Generate preview',exact:true}).click();
+ await page.getByLabel('Exact file contents',{exact:true}).waitFor();
+ if(await page.getByRole('button',{name:'Save report',exact:true}).isEnabled())throw Error('Report save enabled before review');
+ for(const [width,height] of [[1280,800],[850,620],[390,844]]){
+  await page.setViewportSize({width,height});
+  if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Report preview overflow: '+width);
+  const check=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width,name:'Troubleshooting report preview',violations:check.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+  if(width===1280)await page.screenshot({path:path.join(output,'support-report.jpg'),fullPage:true,type:'jpeg',quality:80});
+ }
+ await page.getByLabel('I reviewed this report and approve saving it.',{exact:true}).check();
+ await page.getByRole('button',{name:'Save report',exact:true}).click();
+ await page.getByText('Report saved to /home/player/Documents/proton-medic-report.json. Nothing was uploaded.',{exact:true}).waitFor();
  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();
  await page.getByRole('button',{name:'Open Black Myth: Wukong (Windows)',exact:true}).waitFor();
  await page.getByRole('button',{name:'Add Black Myth: Wukong (Windows) to favorites',exact:true}).click();
@@ -147,7 +165,7 @@ let browser;
  }
  await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg']) {
+ for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg','support-report.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();

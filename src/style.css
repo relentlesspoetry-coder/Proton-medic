@@ -466,3 +466,13 @@ dd { margin: 0; overflow-wrap: anywhere; }
   .pm-section, .pm-action-card, .pm-nav-link.active, .pm-update-status, .pm-windows-game, .pm-tag { border: 1px solid CanvasText; }
   .pm-button, .pm-subtle-button { border: 1px solid ButtonText; }
 }
+
+/* Troubleshooting report review */
+.pm-report-options { display: grid; gap: 12px; margin: 20px 0 12px; padding: 16px; border: 1px solid var(--pm-border); border-radius: 12px; min-width: 0; }
+.pm-report-options label, .pm-report-approval { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.pm-report-options input, .pm-report-approval input { flex: 0 0 auto; margin-top: 5px; }
+.pm-report-help { font-size: 13px; color: var(--pm-muted); line-height: 1.6; overflow-wrap: anywhere; }
+.pm-report-preview { display: grid; gap: 16px; margin-top: 24px; min-width: 0; }
+.pm-report-preview textarea { box-sizing: border-box; width: 100%; min-height: 300px; max-height: 600px; resize: vertical; font-family: monospace; font-size: 12px; line-height: 1.6; }
+.pm-report-preview > button { justify-self: start; }
+.pm-support-report .pm-auto-message { overflow-wrap: anywhere; }
