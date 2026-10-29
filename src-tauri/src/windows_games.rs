@@ -310,7 +310,7 @@ pub struct InstallationCandidate { pub path:String, pub suggested_name:String }
 pub struct InstallationReview { pub candidates:Vec<InstallationCandidate>, pub truncated:bool }
 fn helper_executable(path:&str)->bool {
     let name=Path::new(path).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
-    ["setup","install","unins","vc_redist","vcredist","dxsetup","dxwebsetup","dotnet","ndp","crashreport","unitycrashhandler","ue4prereq","ueprereq"].iter().any(|prefix|name.starts_with(prefix))
+    ["setup","install","unins","vc_redist","vcredist","dxsetup","dxwebsetup","dotnet","ndp","crashreport","unitycrashhandler","ue4prereq","ueprereq"].iter().any(|prefix|name.starts_with(*prefix))
 }
 fn suggested_name(path:&str)->String {
     let p=Path::new(path);
