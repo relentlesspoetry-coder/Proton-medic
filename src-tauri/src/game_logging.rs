@@ -8,6 +8,14 @@ pub struct Status { pub state: String, pub message: String, pub backup_path: Opt
 struct Record { target: PathBuf, status: Status, before: Option<String>, after: Option<String> }
 static REQUESTS: LazyLock<Mutex<HashMap<(String,String),Record>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
+pub(crate) fn require_update_idle()->Result<(),String>{
+    let records=REQUESTS.try_lock().map_err(|_|"Wait for game logging setup")?;
+    if records.values().any(|r|r.status.state=="waiting-for-steam") {
+        return Err("Close Steam and finish queued game logging setup before updating.".into());
+    }
+    Ok(())
+}
+
 fn options(original: &str) -> Result<String,String> {
     if original.len()>8192 || original.chars().any(|c| matches!(c,';'|'|'|'&'|'`'|'\n'|'\r'|'<'|'>'|'$'|'('|')')) {
         return Err("Complex launch script preserved unchanged. Automatic log setup cannot safely rewrite it.".into());

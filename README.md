@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.10 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.11 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -52,7 +52,7 @@ Use `npm run dev` for the frontend or `npm run tauri -- dev` for the desktop app
 
 Scans and log analysis stay on your computer. Configuration changes preserve backups and require Steam to be closed. Game launches and manual repairs require approval. Automatic fixes are optional and limited to supported log findings.
 
-Update checks contact GitHub only when requested. Packages are signature-verified before installation. System package installation may request administrator approval.
+Update checks contact GitHub only when requested. Packages are signature-verified before installation. System package installation may request administrator approval. After installation, Proton Medic automatically reopens into the installed version. Finish active Windows games, installers, queued logging setup, and Fix & Test sessions before updating.
 
 Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings help diagnose a game; the player confirms whether it runs correctly. Windows installers run with your user permissions, so use trusted files.
 
@@ -66,3 +66,4 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.9 changes](RELEASE-v0.6.9.md)
 
 - [v0.6.10 changes](RELEASE-v0.6.10.md)
+- [v0.6.11 changes](RELEASE-v0.6.11.md)

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AppUpdater } from '../src/AppUpdater';
-const { check } = vi.hoisted(() => ({ check: vi.fn() }));
+const { check, invoke } = vi.hoisted(() => ({ check: vi.fn(), invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check }));
-beforeEach(() => { check.mockReset(); });
+beforeEach(() => { check.mockReset(); invoke.mockReset(); invoke.mockResolvedValue(undefined); });
 afterEach(cleanup);
 function update() { return {version:'0.6.6',currentVersion:'0.6.5',body:'Release notes',close:vi.fn().mockResolvedValue(undefined),downloadAndInstall:vi.fn().mockResolvedValue(undefined)}; }
 async function findUpdate(value = update()) {
@@ -20,7 +21,8 @@ it('requires approval before downloading or installing',async()=>{
   const value=await findUpdate();expect(value.downloadAndInstall).not.toHaveBeenCalled();
   expect((screen.getByRole('button',{name:'Download & install 0.6.6'}) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
-  await screen.findByText(/Update installed. Finish any current work/);expect(value.downloadAndInstall).toHaveBeenCalledTimes(1);
+  await screen.findByText(/Update installed. Reopening Proton Medic/);expect(value.downloadAndInstall).toHaveBeenCalledTimes(1);
+  await waitFor(()=>expect(invoke).toHaveBeenCalledWith('restart_after_update',{version:'0.6.6'}));
 });
 it('does not call a failed check up to date',async()=>{
   check.mockRejectedValue(new Error('404'));render(<AppUpdater/>);
@@ -40,7 +42,7 @@ it('prevents duplicate downloads while an install is pending',async()=>{
   await findUpdate(value);fireEvent.click(screen.getByRole('checkbox'));
   const button=screen.getByRole('button',{name:'Download & install 0.6.6'});
   fireEvent.click(button);fireEvent.click(button);
-  expect(value.downloadAndInstall).toHaveBeenCalledTimes(1);finish();
+  await waitFor(()=>expect(value.downloadAndInstall).toHaveBeenCalledTimes(1));finish();
   await screen.findByText(/Update installed\./);
 });
 it('releases the previous update handle before rechecking',async()=>{
@@ -78,6 +80,34 @@ it('retains an active install when update details are closed and reopened',async
   fireEvent.click(screen.getByRole('button',{name:'Close update details'}));
   fireEvent.click(screen.getByRole('button',{name:'About app updates'}));
   expect((screen.getByRole('button',{name:'Download & install 0.6.6'}) as HTMLButtonElement).disabled).toBe(true);
-  expect(value.downloadAndInstall).toHaveBeenCalledTimes(1);
+  await waitFor(()=>expect(value.downloadAndInstall).toHaveBeenCalledTimes(1));
   finish();await screen.findByText(/Update installed\./);
+});
+
+it('does not install or restart when active work blocks the update',async()=>{
+ invoke.mockRejectedValue(new Error('Finish Windows games and installers before updating.'));
+ const value=await findUpdate();fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent',expect.stringContaining('Finish Windows games and installers before updating.'));
+ expect(value.downloadAndInstall).not.toHaveBeenCalled();expect(invoke).toHaveBeenCalledTimes(1);
+});
+it('releases the update guard after installer failure and never restarts',async()=>{
+ const value=update();value.downloadAndInstall.mockRejectedValue(new Error('Installer cancelled'));
+ await findUpdate(value);fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
+ await screen.findByRole('alert');await waitFor(()=>expect(invoke).toHaveBeenCalledWith('cancel_app_update'));
+ expect(invoke.mock.calls.some(c=>c[0]==='restart_after_update')).toBe(false);
+});
+it('reports relaunch failure without offering another action button or reinstalling',async()=>{
+ invoke.mockImplementation(async(command:string)=>{if(command==='restart_after_update')throw new Error('Spawn failed');});
+ const value=await findUpdate();fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
+ await screen.findByText(/The update installed, but Proton Medic could not open/);
+ expect(value.downloadAndInstall).toHaveBeenCalledTimes(1);
+ expect(screen.queryByRole('button',{name:/reopen|relaunch|restart/i})).toBeNull();
+ expect(invoke.mock.calls.some(c=>c[0]==='cancel_app_update')).toBe(false);
+});
+it('waits for successful installation before requesting relaunch',async()=>{
+ const value=update();let finish!:()=>void;value.downloadAndInstall.mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve;}));
+ await findUpdate(value);fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
+ await waitFor(()=>expect(value.downloadAndInstall).toHaveBeenCalledTimes(1));
+ expect(invoke.mock.calls.some(c=>c[0]==='restart_after_update')).toBe(false);
+ finish();await waitFor(()=>expect(invoke).toHaveBeenCalledWith('restart_after_update',{version:'0.6.6'}));
 });

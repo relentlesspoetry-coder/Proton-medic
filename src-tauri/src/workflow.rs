@@ -42,6 +42,12 @@ pub fn plan(app_id: &str, library: &str) -> Result<FixPlan, String> {
 
 struct Session { app_id: String, library: String, undo: Option<auto_select::ConfigUndo>, attempted: bool }
 static SESSIONS: LazyLock<Mutex<HashMap<String, Session>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+pub(crate) fn require_update_idle() -> Result<(),String> {
+    if !SESSIONS.try_lock().map_err(|_|"Wait for the current repair")?.is_empty() {
+        return Err("Finish or roll back open Fix & Test sessions before updating.".into());
+    }
+    Ok(())
+}
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct FixStarted { pub session_id: String, pub selection: auto_select::AutoSelection }

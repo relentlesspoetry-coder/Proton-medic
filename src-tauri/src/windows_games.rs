@@ -19,6 +19,15 @@ pub struct Game { pub id:String, pub name:String, pub runtime_id:String, pub gam
 pub struct Library { pub runtimes:Vec<Runtime>, pub games:Vec<Game>, pub removed_games:Vec<Game>, pub warnings:Vec<String> }
 static JOBS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(||Mutex::new(HashSet::new()));
 static UNSAVED: LazyLock<Mutex<HashMap<String, Record>>> = LazyLock::new(||Mutex::new(HashMap::new()));
+pub(crate) fn require_update_idle()->Result<(),String>{
+    if !JOBS.try_lock().map_err(|_|"Wait for the current Windows game operation")?.is_empty() {
+        return Err("Finish Windows games and installers before updating. No process will be stopped automatically.".into());
+    }
+    if !UNSAVED.try_lock().map_err(|_|"Wait for the completion receipt")?.is_empty() {
+        return Err("A game completion receipt is still being saved. Keep Proton Medic open and retry.".into());
+    }
+    Ok(())
+}
 fn boot_id()->Option<String>{fs::read_to_string("/proc/sys/kernel/random/boot_id").ok().map(|s|s.trim().to_owned()).filter(|s|!s.is_empty())}
 fn require_idle(r:&Record)->Result<(),String>{
     if r.state.ends_with("running") && !(r.boot_id.is_some() && boot_id().is_some() && r.boot_id!=boot_id()) {

@@ -63,7 +63,9 @@ python3 scripts/release_manifest.py --tag vVERSION --package release/proton-medi
 
 ## Install an update
 
-Finish active game installations and repairs, check for updates, review the release notes, and approve installation. The system package manager may request administrator approval. Close and reopen Proton Medic after installation.
+Finish active Windows games, installers, queued logging setup, and Fix & Test sessions. Check for updates, review the release notes, and approve installation and automatic relaunch. The system package manager may request administrator approval. Proton Medic automatically opens the installed version after a successful update. No separate restart action is required.
+
+Versions through v0.6.10 require one manual close and reopen after installing v0.6.11 to load the new updater flow.
 
 The stable manifest URL is:
 

@@ -64,6 +64,14 @@ class WindowsShortcutTests(unittest.TestCase):
         self.assertEqual(saved['exitCode'], 0)
         self.assertTrue((self.profile/'logs'/saved['runId']/'stderr.log').is_file())
 
+    def test_native_version_probe_needs_no_desktop_session(self):
+        result = subprocess.run([str(BINARY), '--proton-medic-version'], env=self.env,
+                                text=True, capture_output=True, timeout=5)
+        expected = json.loads((Path(__file__).resolve().parents[1]/'package.json').read_text())['version']
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, expected + '\n')
+        self.assertFalse(self.receipt.exists())
+
     def test_missing_executable_fails_without_starting_runtime(self):
         self.record['gameExe'] = str(self.home/'missing.exe')
         self.save()

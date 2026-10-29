@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { Download, Info, RefreshCw, X } from 'lucide-react';
 import { version as appVersion } from '../package.json';
@@ -42,9 +43,12 @@ export function AppUpdater() {
     const update = candidate.current;
     if (!update || !approved || locked.current || installed) return;
     locked.current = true; setBusy(true); setError(''); setTechnicalError('');
-    setMessage('Downloading update…');
+    setMessage('Preparing update…');
+    let prepared = false; let completed = false;
     let total = 0; let received = 0;
     try {
+      await invoke('begin_app_update'); prepared = true;
+      setMessage('Downloading update…');
       await update.downloadAndInstall(event => {
         if (event.event === 'Started') total = event.data.contentLength ?? 0;
         if (event.event === 'Progress') {
@@ -54,10 +58,18 @@ export function AppUpdater() {
         if (event.event === 'Finished') setMessage('Verifying and installing… Approve the system prompt if asked.');
       }, { timeout: 300000 });
       setInstalled(true); setVersion(''); setApproved(false);
-      setMessage('Update installed. Finish any current work, then close and reopen Proton Medic.');
+      completed = true;
+      setMessage('Update installed. Reopening Proton Medic…');
+      await invoke('restart_after_update', { version: update.version });
     } catch (e) {
-      setMessage(''); setApproved(false);
-      setError('Update did not complete. You can try again.');
+      setApproved(false);
+      if (completed) {
+        setMessage('Update installed.');
+        setError('The update installed, but Proton Medic could not open the new version. Open Proton Medic from your applications menu.');
+      } else {
+        setMessage(''); setError(prepared ? 'Update did not complete. You can try again.' : String(e));
+        if (prepared) { try { await invoke('cancel_app_update'); } catch { setError('Update stopped. Close and reopen Proton Medic before continuing.'); } }
+      }
       setTechnicalError(String(e));
     } finally { locked.current = false; setBusy(false); }
   };
@@ -79,11 +91,11 @@ export function AppUpdater() {
     {error && <div role="alert" className="pm-update-status"><p>{error}</p><details className="pm-update-details"><summary>Technical details</summary><pre>{technicalError}</pre></details></div>}
     {version && <>
       {notes && <details className="pm-update-details"><summary>What changed</summary><pre style={{whiteSpace:'pre-wrap'}}>{notes}</pre></details>}
-      <label className="pm-launch-consent"><input type="checkbox" checked={approved} disabled={busy} onChange={e => setApproved(e.target.checked)}/><span>I have finished game installations and repairs and approve updating Proton Medic.</span></label>
+      <label className="pm-launch-consent"><input type="checkbox" checked={approved} disabled={busy} onChange={e => setApproved(e.target.checked)}/><span>I have finished game installations and repairs and approve updating and automatically reopening Proton Medic.</span></label>
       <button className="pm-button pm-button-primary" disabled={!approved || busy} onClick={() => void install()}><Download size={17}/>Download &amp; install {version}</button>
     </>}
     <p className="pm-update-footer">Signed updates from GitHub. You choose when to install.</p>
-    <details className="pm-update-details"><summary>How updates work</summary><p>Checks contact GitHub only when requested. Downloads are signature-verified before installation. System packages may require administrator approval.</p></details>
+    <details className="pm-update-details"><summary>How updates work</summary><p>Checks contact GitHub only when requested. Downloads are signature-verified before installation. System packages may require administrator approval. After installation, Proton Medic reopens automatically to load the new version.</p></details>
     </section>
   </header>;
 }
