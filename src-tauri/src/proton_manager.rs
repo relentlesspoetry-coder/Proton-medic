@@ -29,6 +29,7 @@ pub fn cancel()->Result<(),String>{if BUSY.load(Ordering::Acquire){CANCEL.store(
 fn canceled()->Result<(),String>{if CANCEL.load(Ordering::Acquire){Err("Download canceled. Installed versions are unchanged.".into())}else{Ok(())}}
 fn safe_name(s:&str)->bool{!s.is_empty()&&s.len()<150&&s.bytes().all(|b|b.is_ascii_alphanumeric()||matches!(b,b'-'|b'_'|b'.'))&&!s.starts_with('.')}
 fn client()->Result<reqwest::Client,String>{
+    let _=rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder().user_agent("Proton-Medic").https_only(true).connect_timeout(Duration::from_secs(20)).read_timeout(Duration::from_secs(30)).timeout(Duration::from_secs(3600))
         .redirect(reqwest::redirect::Policy::custom(|attempt|{
             let allowed=matches!(attempt.url().host_str(),Some("github.com"|"api.github.com"|"release-assets.githubusercontent.com"|"objects.githubusercontent.com"));
@@ -142,7 +143,7 @@ pub fn start(tag:String,root:String,confirmed:bool)->Result<(),String>{
     if !confirmed{return Err("Approve the Proton download first".into());}if !safe_name(&tag)||!tag.starts_with("GE-Proton"){return Err("Invalid Proton release".into());}
     if BUSY.compare_exchange(false,true,Ordering::AcqRel,Ordering::Acquire).is_err(){return Err("A Proton installation is already in progress".into());}
     CANCEL.store(false,Ordering::Release);update("preparing",&tag,0,0,"Checking release metadata…");
-    std::thread::spawn(move||{let result=(||{let _activity=crate::app_update::activity()?;tauri::async_runtime::block_on(install(&tag,&root))})();
+    std::thread::spawn(move||{let result=std::panic::catch_unwind(||{let _activity=crate::app_update::activity()?;tauri::async_runtime::block_on(install(&tag,&root))}).unwrap_or_else(|_|Err("Proton installer stopped unexpectedly. Existing versions are unchanged; retry the download.".into()));
         match result{Ok(())=>update("installed",&tag,0,0,"Installed. Restart Steam to load the new version; then choose it for a game."),Err(e)=>update(if CANCEL.load(Ordering::Acquire){"canceled"}else{"failed"},&tag,0,0,&e)}BUSY.store(false,Ordering::Release);
     });Ok(())
 }
@@ -179,6 +180,7 @@ pub fn umu()->Option<PathBuf>{std::env::var_os("PATH").and_then(|p|std::env::spl
         let url=format!("{ASSETS}GE-Proton11-11/GE-Proton11-11-x86_64.tar.gz");assert!(release_from(raw(&url)).is_some());assert!(release_from(raw("https://example.com/GE.tar.gz")).is_none());let mut other=raw(&url);other.assets[0].name="GE-Proton11-11-aarch64.tar.gz".into();assert!(release_from(other).is_none());let mut pre=raw(&url);pre.prerelease=true;assert!(release_from(pre).is_none());
     }
     #[test] fn final_install_does_not_replace_an_existing_version(){let f=Fixture::new();let a=f.0.join("new");let b=f.0.join("old");fs::create_dir(&a).unwrap();fs::create_dir(&b).unwrap();fs::write(b.join("keep"),"original").unwrap();assert!(commit(&a,&b).is_err());assert_eq!(fs::read_to_string(b.join("keep")).unwrap(),"original");let c=f.0.join("installed");commit(&a,&c).unwrap();assert!(c.is_dir());}
+    #[test] fn https_client_initializes_without_an_updater_check(){assert!(client().is_ok());}
     #[test] fn unapproved_download_is_rejected_before_network_or_disk_changes(){assert!(start("GE-Proton11-11".into(),"/unused".into(),false).is_err());assert!(start("../bad".into(),"/unused".into(),true).is_err());}
     #[test]
     #[ignore = "Downloads the pinned official release; run explicitly in Linux validation"]
