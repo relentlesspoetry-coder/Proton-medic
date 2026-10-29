@@ -47,7 +47,7 @@ To build an AppImage on Ubuntu 22.04, install the native dependencies above plus
 
 ```bash
 npm ci
-APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri -- build --bundles appimage -- --locked
+APPIMAGE_EXTRACT_AND_RUN=1 npm run tauri -- build --config src-tauri/tauri.appimage.conf.json --bundles appimage -- --locked
 ```
 
 Keep SteamOS system protection enabled. Use the portable package for Steam Deck.

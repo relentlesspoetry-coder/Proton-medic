@@ -28,7 +28,7 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           CARGO_BUILD_JOBS: '2'
-        run: npm run tauri -- build --bundles appimage -- --locked
+        run: npm run tauri -- build --config src-tauri/tauri.appimage.conf.json --bundles appimage -- --locked
       - name: Name portable artifact
         run: |
           version=$(node -p 'require("./package.json").version')
