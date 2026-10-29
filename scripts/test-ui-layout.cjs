@@ -14,10 +14,11 @@ const server=http.createServer((request,response)=>{
  const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.png':'image/png','.webp':'image/webp'};
  try{response.setHeader('Content-Type',types[path.extname(target)]||'application/octet-stream');response.end(fs.readFileSync(target));}catch{response.writeHead(404).end();}
 });
+let browser;
 (async()=>{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const address='http://127.0.0.1:'+server.address().port;
- const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+ browser=await chromium.launch({headless:true,args:['--no-sandbox']});
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(()=>{
   const names=['Black Myth: Wukong','Hollow Knight','No Man’s Sky','Baldur’s Gate 3','Stardew Valley','ELDEN RING'];
@@ -60,4 +61,8 @@ const server=http.createServer((request,response)=>{
  }
  await browser.close();server.close();
  if(errors.length||results.some(r=>r.violations?.length))process.exitCode=1;
-})().catch(e=>{console.error(e);process.exitCode=1;server.close();});
+})().catch(async e=>{
+ console.error(e);
+ for(const file of fs.readdirSync(output).filter(file=>file.endsWith('.png')))console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
+ if(browser)await browser.close();server.close();process.exitCode=1;
+});
