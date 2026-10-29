@@ -19,7 +19,8 @@ let browser;
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const address='http://127.0.0.1:'+server.address().port;
  browser=await chromium.launch({headless:true,args:['--no-sandbox']});
- const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const context=await browser.newContext();
+ const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.addInitScript(()=>{
   const names=['Black Myth: Wukong','Hollow Knight','No Man’s Sky','Baldur’s Gate 3','Stardew Valley','ELDEN RING'];
   const games=names.map((name,i)=>({name,appId:String(100+i),libraryPath:'/home/player/Games/SteamLibrary',installPath:'/home/player/Games/'+name,installPathExists:i!==2,manifestPath:'/home/player/Games/steamapps/appmanifest_'+i+'.acf',prefixPath:'/home/player/Games/compatdata/'+i,prefixExists:true,configuredTool:'GE-Proton10-34',buildId:'123456'}));
@@ -48,21 +49,21 @@ let browser;
    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).click();await page.waitForTimeout(100);
    const overflow=await page.evaluate(()=>({page:document.documentElement.scrollWidth>innerWidth+1,elements:[...document.querySelectorAll('main button,main input,main select,main summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width&&r.height&&(r.right>innerWidth+1||r.left<0)}).map(el=>el.textContent.slice(0,90))}));
    if(overflow.page||overflow.elements.length)throw Error(JSON.stringify({width,name,overflow}));
-   if(width===1200||width===850)await page.screenshot({path:path.join(output,`${width}-${name.replaceAll(' ','-')}.png`),fullPage:true});
+   if(width===1200||width===850)await page.screenshot({path:path.join(output,`${width}-${name.replaceAll(' ','-')}.jpg`),fullPage:true,type:'jpeg',quality:80});
    if(width===1200){const a=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();results.push({width,name,violations:a.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});}
    else results.push({width,name,layout:'passed'});
   }
  }
- await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();await page.getByRole('button',{name:/Black Myth: Wukong/}).click();await page.screenshot({path:path.join(output,'game-detail.png'),fullPage:true});
+ await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();await page.getByRole('button',{name:/Black Myth: Wukong/}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});
  const details=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();results.push({name:'Game detail',violations:details.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.png','1200-My-Games.png','1200-Windows-Games.png','1200-Settings.png','850-Home.png','game-detail.png']) {
+ for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();
  if(errors.length||results.some(r=>r.violations?.length))process.exitCode=1;
 })().catch(async e=>{
  console.error(e);
- for(const file of fs.readdirSync(output).filter(file=>file.endsWith('.png')))console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
+ for(const file of fs.readdirSync(output).filter(file=>file.endsWith('.jpg')))console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  if(browser)await browser.close();server.close();process.exitCode=1;
 });
