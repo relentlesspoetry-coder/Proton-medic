@@ -265,7 +265,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .pm-remove-confirm { border-color: #edc48729; }
 .pm-removed-games { display: grid; gap: 12px; margin-top: 14px; }
 .pm-removed-game { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-.pm-removed-game>span { min-width: 0; overflow-wrap: anywhere; }
+.pm-removed-game>span, .pm-removed-game>.pm-button { min-width: 0; overflow-wrap: anywhere; }
 
 /* Installation completion and per-game launch options */
 .pm-install-review { margin: 20px 0; padding: 20px; border: 1px solid #8bbfff30; border-radius: 11px; background: #8bbfff06; }
