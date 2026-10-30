@@ -64,8 +64,8 @@ let browser;
  await page.addInitScript(fixture);
  const results=[];
  for(const [width,height] of [[1440,900],[1200,800],[850,620],[1280,800],[390,844]]){
-  await page.setViewportSize({width,height});await page.goto(address);await page.getByText('6',{exact:true}).waitFor();
-  for(const name of ['Home','My Games','Windows Games','Proton versions','Fixes','System Check','Settings']){
+  await page.setViewportSize({width,height});await page.goto(address);await page.getByRole('textbox',{name:'Search games'}).waitFor();
+  for(const name of ['Home','Library','Windows Games','Proton versions','Diagnostics','System Check','Settings']){
    await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).click();await page.waitForTimeout(100);
    const overflow=await page.evaluate(()=>({page:document.documentElement.scrollWidth>innerWidth+1,elements:[...document.querySelectorAll('main button,main input,main select,main summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width&&r.height&&(r.right>innerWidth+1||r.left<0)}).map(el=>el.textContent.slice(0,90))}));
    if(overflow.page||overflow.elements.length)throw Error(JSON.stringify({width,name,overflow}));
@@ -115,7 +115,7 @@ let browser;
  await page.getByLabel('I reviewed this report and approve saving it.',{exact:true}).check();
  await page.getByRole('button',{name:'Save report',exact:true}).click();
  await page.getByText('Report saved to /home/player/Documents/proton-medic-report.json. Nothing was uploaded.',{exact:true}).waitFor();
- await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();
+ await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Library',exact:true}).click();
  await page.getByRole('button',{name:'Open Black Myth: Wukong (Windows)',exact:true}).waitFor();
  await page.getByRole('button',{name:'Add Black Myth: Wukong (Windows) to favorites',exact:true}).click();
  await page.getByRole('combobox',{name:'Filter games'}).selectOption('favorites');
@@ -134,7 +134,7 @@ let browser;
  await page.getByRole('combobox',{name:'Sort games'}).selectOption('name');
  await page.setViewportSize({width:1280,height:800});
  await page.screenshot({path:path.join(output,'unified-library.jpg'),fullPage:true,type:'jpeg',quality:80});
- await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'My Games',exact:true}).click();await page.getByRole('button',{name:'Open Black Myth: Wukong (Steam)',exact:true}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});
+ await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Library',exact:true}).click();await page.getByRole('button',{name:'Open Black Myth: Wukong (Steam)',exact:true}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});
  for(const name of ['Diagnostics','Proton','Launch & repair','Backups & details']) {
   await page.getByRole('tab',{name,exact:true}).click();
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Game panel overflow: '+name);
@@ -179,14 +179,14 @@ let browser;
  await page.getByRole('button',{name:'Stop monitoring',exact:true}).click();
  const touchContext=await browser.newContext({hasTouch:true,viewport:{width:1280,height:800}});
  const touch=await touchContext.newPage();touch.on('pageerror',e=>errors.push(e.message));
- await touch.addInitScript(fixture);await touch.goto(address);await touch.getByText('6',{exact:true}).waitFor();
- for(const name of ['Home','My Games','Windows Games','Settings']){
+ await touch.addInitScript(fixture);await touch.goto(address);await touch.getByRole('textbox',{name:'Search games'}).waitFor();
+ for(const name of ['Home','Library','Windows Games','Settings']){
   await touch.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).tap();
   const small=await touch.evaluate(()=>[...document.querySelectorAll('button,summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&(r.width<43.5||r.height<43.5)}).map(el=>el.textContent));
   if(small.length)throw Error('Small Deck touch targets on '+name+': '+JSON.stringify({small,media:await touch.evaluate(()=>({coarse:matchMedia('(any-pointer: coarse)').matches,size:getComputedStyle(document.documentElement).getPropertyValue('--pm-control-size')}))}));
   if(await touch.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Deck touch layout overflow: '+name);
   results.push({name:'Deck touch: '+name,layout:'passed'});
-  if(name==='My Games'){
+  if(name==='Library'){
    await touch.getByRole('textbox',{name:'Search games'}).focus();
    const outline=await touch.locator('.pm-search').evaluate(el=>getComputedStyle(el).outlineStyle);
    if(outline==='none')throw Error('Library search has no visible focus outline');
@@ -229,7 +229,7 @@ let browser;
  }
  await touchContext.close();
  fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({results,errors},null,2));console.log(JSON.stringify({layouts:results.length,errors,violations:results.filter(r=>r.violations?.length)},null,2));
- for(const file of ['1200-Home.jpg','1200-My-Games.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg','support-report.jpg','proton-manager.jpg']) {
+ for(const file of ['1200-Home.jpg','1200-Library.jpg','1200-Windows-Games.jpg','1200-Settings.jpg','850-Home.jpg','game-detail.jpg','detail-Proton.jpg','detail-Launch-repair.jpg','detail-Backups-details.jpg','windows-options.jpg','deck-touch-home.jpg','launch-history.jpg','resource-monitor.jpg','unified-library.jpg','support-report.jpg','proton-manager.jpg']) {
   console.log('UI_RENDER '+file+' '+fs.readFileSync(path.join(output,file)).toString('base64'));
  }
  await browser.close();server.close();

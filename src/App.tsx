@@ -54,7 +54,7 @@ function StatusTag({ label, tone }: { label: string; tone: 'error' | 'warning' |
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>('home');
+  const [page, setPage] = useState<Page>('games');
   const [scan, setScan] = useState<ScanReport | null>(null);
   const [report, setReport] = useState<DiagnosticsReport | null>(null);
   const [advice, setAdvice] = useState<AdvisorReport | null>(null);
@@ -180,14 +180,19 @@ export default function App() {
   return <div className="pm-app">
     <aside className="pm-sidebar">
       <div className="pm-brand"><img className="pm-brand-logo" src={programLogo} alt="Proton Medic" width={768} height={512}/></div>
-      <nav aria-label="Main navigation" className="pm-nav">{[
-        { label: 'Library', items: MENU.slice(0, 4) },
-        { label: 'Tools', items: MENU.slice(4) },
-      ].map(group => <div className="pm-nav-group" key={group.label}><span className="pm-nav-label">{group.label}</span>{group.items.map(({ page: id, label, icon: Icon }) => <button className={`pm-nav-link ${page === id ? 'active' : ''}`} aria-current={page === id ? 'page' : undefined} type="button" key={id} onClick={() => setPage(id)}><Icon size={19}/><span>{label}</span></button>)}</div>)}</nav>
-      <div className="pm-side-bottom"><div><ShieldCheck size={17}/><span><strong>Local by design</strong><small>Your games. Your control.</small></span></div></div>
+      <nav aria-label="Main navigation" className="pm-nav">
+        <div className="pm-nav-group">{(['games', 'protons', 'fixes', 'settings'] as Page[]).map(id => {
+          const { label, icon: Icon } = MENU.find(item => item.page === id)!;
+          return <button className={`pm-nav-link ${page === id ? 'active' : ''}`} aria-label={id === 'games' ? 'Library' : id === 'fixes' ? 'Diagnostics' : label} aria-current={page === id ? 'page' : undefined} type="button" key={id} onClick={() => { if (id === 'games') { setSelectedKey(null); setSelectedWindowsId(undefined); } setPage(id); }}><Icon size={21}/><span>{id === 'games' ? 'Library' : id === 'fixes' ? 'Diagnostics' : label}</span></button>;
+        })}</div>
+        <div className="pm-nav-group pm-nav-secondary">{(['home', 'windows', 'system'] as Page[]).map(id => {
+          const { label, icon: Icon } = MENU.find(item => item.page === id)!;
+          return <button className={`pm-nav-link ${page === id ? 'active' : ''}`} aria-current={page === id ? 'page' : undefined} type="button" key={id} onClick={() => setPage(id)}><Icon size={18}/><span>{label}</span></button>;
+        })}</div>
+      </nav>
     </aside>
     <main className="pm-main">
-      <div className="pm-workspace-header"><div className="pm-workspace-heading"><span className="pm-eyebrow">Proton Medic</span><span className="pm-workspace-location">{MENU.find(item => item.page === page)?.label}</span></div><AppUpdater/></div>
+      <div className="pm-workspace-header">{page === 'games' && !selectedGame && !selectedWindowsId ? <h1>My Games</h1> : <span aria-hidden="true"/>}<AppUpdater/></div>
       <ActiveFixSessions/>
       {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
       {page === 'home' && <>
@@ -212,7 +217,7 @@ export default function App() {
 
       {page === 'windows' && <WindowsGames/>}
       {page === 'games' && <>
-        {!selectedGame && !selectedWindowsId && <div className="pm-page-title"><div><h1>My Games</h1><p>Your Steam and Windows games, together.</p></div><button className="pm-button pm-button-primary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={17} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div>}
+
         {selectedWindowsId ? <WindowsGames selectedId={selectedWindowsId} onBack={()=>setSelectedWindowsId(undefined)}/> : selectedGame ? <div className="pm-detail-view"><div className="pm-detail-toolbar"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><button className="pm-button pm-button-secondary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={16} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div><div className="pm-selected-head"><GameIcon className="big" source={{ kind: 'steam', appId: selectedGame.appId, libraryPath: selectedGame.libraryPath }}/><div><h1>{selectedGame.name}</h1><span className="pm-game-subtitle">Steam App {selectedGame.appId}</span><div className="pm-detail-status"><StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/></div><p>{getIssue(selectedGame, selectedDiagnosis ?? undefined).note}</p></div></div>
           <GameDetailTabs key={gameKey(selectedGame)} tabs={[
             { id: 'diagnostics', label: 'Diagnostics', content: <>
@@ -238,6 +243,7 @@ export default function App() {
           ]}/>
         </div> : <UnifiedLibrary steam={scan?.games??[]} steamLoading={loading} scanAvailable={!!scan} refreshKey={lastScan?.getTime()??0} problemKeys={problemKeys}
           query={query} onQuery={setQuery} filter={filter} onFilter={setFilter} source={librarySource} onSource={setLibrarySource} sort={librarySort} onSort={setLibrarySort}
+          onAddGame={() => setPage('windows')} onScan={() => void scanGames()} scanning={loading}
           onSteam={openGame} onWindows={game=>{setSelectedKey(null);setSelectedWindowsId(game.id);}} steamStatus={game=><StatusTag {...getIssue(game,issueByGame.get(gameKey(game)))}/>}/>}
 
       </>}

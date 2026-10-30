@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, Gamepad2, Play, Shiel
 import type { Game, LaunchResult } from './types';
 
 /** An explicit launch observation, never a claim of verified compatibility. */
-export function LaunchTest({ game }: { game: Game }) {
+export function LaunchTest({ game, onBusyChange }: { game: Game; onBusyChange?: (busy: boolean) => void }) {
   const [approved, setApproved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<LaunchResult | null>(null);
@@ -14,6 +14,7 @@ export function LaunchTest({ game }: { game: Game }) {
   const test = async () => {
     if (!approved || testing) return;
     setTesting(true);
+    onBusyChange?.(true);
     setFailure(null);
     setResult(null);
     setPlayable(false);
@@ -27,7 +28,7 @@ export function LaunchTest({ game }: { game: Game }) {
       setResult(observed);
     } catch (error) {
       setFailure(`Could not test this game: ${String(error)}`);
-    } finally { setTesting(false); }
+    } finally { setTesting(false); onBusyChange?.(false); }
   };
 
   const hasFindings = result?.status === 'log-error' || result?.status === 'log-warning' || result?.status === 'launcher-error' || result?.status === 'log-unreadable';

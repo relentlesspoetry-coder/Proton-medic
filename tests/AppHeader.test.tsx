@@ -11,6 +11,7 @@ beforeEach(() => {
   invoke.mockImplementation(async (command: string) => {
     if (command === 'scan_steam') return { games: [], installations: [], libraries: [], compatibilityTools: [], warnings: [] };
     if (command === 'monitor_game_logs') return [];
+    if (command === 'list_windows_games') return {games:[],runtimes:[],removedGames:[],warnings:[]};
     if (command === 'get_auto_fix_control') return {enabled:false,revision:0};
     return { games: [] };
   });
@@ -38,4 +39,18 @@ it('places automatic fix controls before privacy and technical sections in Setti
  const monitor=screen.getByRole('region',{name:'Automatic game log reader'});
  expect(monitor.compareDocumentPosition(screen.getByText('Privacy & safety')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+});
+
+it('opens the library by default and keeps every tool reachable', async () => {
+ render(<App/>);
+ expect(screen.getByRole('heading', {name:'My Games',level:1})).toBeTruthy();
+ expect(screen.getByRole('button', {name:'Library',exact:true}).getAttribute('aria-current')).toBe('page');
+ await screen.findByRole('button', {name:'Add game',exact:true});
+ fireEvent.click(screen.getByRole('button', {name:'Add game',exact:true}));
+ expect(await screen.findByRole('heading', {name:'Windows Games',level:1})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button', {name:'Library',exact:true}));
+ expect(screen.getByRole('heading', {name:'My Games',level:1})).toBeTruthy();
+ for(const label of ['Home','Windows Games','Proton versions','Diagnostics','System Check','Settings']) {
+  expect(screen.getByRole('button', {name:label,exact:true})).toBeTruthy();
+ }
 });

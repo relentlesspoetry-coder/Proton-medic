@@ -12,7 +12,7 @@ function Harness({games=[steam],refreshKey=0}:{games?:Game[];refreshKey?:number}
  const [query,onQuery]=useState('');const [filter,onFilter]=useState<LibraryFilter>('all');const [source,onSource]=useState<LibrarySource>('all');const [sort,onSort]=useState<LibrarySort>('name');
  return <UnifiedLibrary steam={games} steamLoading={false} scanAvailable refreshKey={refreshKey} problemKeys={new Set(['/Steam/A:100'])} query={query} onQuery={onQuery} filter={filter} onFilter={onFilter} source={source} onSource={onSource} sort={sort} onSort={onSort} onSteam={onSteam} onWindows={onWindows} steamStatus={()=>'Not checked'}/>;
 }
-const choose=async(name:string,value:string)=>{await act(async()=>{fireEvent.change(screen.getByRole('combobox',{name}),{target:{value}});});};
+const choose=async(name:string,value:string)=>{await act(async()=>{if(name==='Game source')fireEvent.click(within(screen.getByRole('group',{name})).getByRole('button',{name:value==='all'?'All':value==='steam'?'Steam':'Windows',exact:true}));else fireEvent.change(screen.getByRole('combobox',{name}),{target:{value}});});};
 const mount=async()=>{render(<Harness/>);await act(async()=>{});};
 beforeEach(()=>{vi.useFakeTimers();vi.spyOn(document,'hidden','get').mockReturnValue(false);localStorage.clear();invoke.mockReset();onSteam.mockReset();onWindows.mockReset();windowsData={games:[windows],removedGames:[{...windows,id:'999',name:'Hidden game'}],warnings:[],runtimes:[]};invoke.mockImplementation(async(command:string)=>command==='list_windows_games'?windowsData:null);});
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.useRealTimers();});
@@ -80,4 +80,58 @@ it('does not scan on a hidden mount and ignores the response from before hiding'
  expect(screen.queryByText('Obsolete response')).toBeNull();
  await act(async()=>{await vi.advanceTimersByTimeAsync(30000);});expect(inventoryCalls()).toBe(1);
  await visibility(false);expect(inventoryCalls()).toBe(2);expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();
+});
+it('opens Steam launch consent without launching and requires approval before the native call',async()=>{
+ await mount();
+ fireEvent.click(screen.getByRole('button',{name:'Play Shared name (Steam)'}));
+ const panel=screen.getByRole('region',{name:'Launch Shared name'});
+ expect(document.activeElement).toBe(panel);
+ expect(invoke.mock.calls.some(call=>call[0]==='test_game_launch')).toBe(false);
+ const launch=within(panel).getByRole('button',{name:'Launch & Check Game'});
+ expect((launch as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(within(panel).getByRole('checkbox',{name:'I approve opening this game through Steam'}));
+ await act(async()=>{fireEvent.click(launch);});
+ expect(invoke).toHaveBeenCalledWith('test_game_launch',{appId:'100',libraryPath:'/Steam/A',seconds:10,confirmed:true});
+});
+it('launches a Windows card once, retains its identity, and disables running games',async()=>{
+ await mount();let finish!:(game:WindowsGame)=>void;
+ invoke.mockImplementation((command:string)=>command==='launch_windows_game'?new Promise<WindowsGame>(resolve=>{finish=resolve;}):Promise.resolve(command==='list_windows_games'?windowsData:null));
+ const play=screen.getByRole('button',{name:'Play Shared name (Windows)'});
+ fireEvent.click(play);fireEvent.click(play);
+ expect(invoke.mock.calls.filter(call=>call[0]==='launch_windows_game')).toEqual([['launch_windows_game',{id:'123',confirmed:true}]]);
+ windowsData.games=[{...windows,state:'game-running'}];
+ await act(async()=>finish(windowsData.games[0]));
+ expect((screen.getByRole('button',{name:'Play Shared name (Windows)'}) as HTMLButtonElement).disabled).toBe(true);
+});
+it('keeps games available after a failed card launch and reports the error',async()=>{
+ await mount();invoke.mockImplementation(async(command:string)=>{if(command==='launch_windows_game')throw new Error('runtime unavailable');return command==='list_windows_games'?windowsData:null;});
+ await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Play Shared name (Windows)'}));});
+ expect(screen.getByRole('alert').textContent).toContain('runtime unavailable');
+ expect((screen.getByRole('button',{name:'Play Shared name (Windows)'}) as HTMLButtonElement).disabled).toBe(false);
+ expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();
+});
+it('shows only known recent dates and keeps the recent list within current source filters',async()=>{
+ render(<Harness games={[steam,{...steam,appId:'999',name:'Unknown date',lastPlayedAt:null}]}/>);await act(async()=>{});
+ const recent=screen.getByRole('region',{name:'Recently played'});
+ expect(within(recent).queryByText('Unknown date')).toBeNull();
+ expect(within(recent).getAllByRole('button',{name:/^View recent /})).toHaveLength(2);
+ await choose('Game source','windows');
+ expect(within(recent).queryByRole('button',{name:'View recent Shared name (Steam)'})).toBeNull();
+ fireEvent.click(within(recent).getByRole('button',{name:'View recent Shared name (Windows)'}));
+ expect(onWindows).toHaveBeenCalledWith(windows);
+});
+
+it('keeps the Steam launch panel mounted while an observation is pending',async()=>{
+ await mount();let finish!:(value:unknown)=>void;
+ invoke.mockImplementation((command:string)=>command==='test_game_launch'?new Promise(resolve=>{finish=resolve;}):Promise.resolve(command==='list_windows_games'?windowsData:null));
+ fireEvent.click(screen.getByRole('button',{name:'Play Shared name (Steam)'}));
+ fireEvent.click(screen.getByRole('checkbox',{name:'I approve opening this game through Steam'}));
+ fireEvent.click(screen.getByRole('button',{name:'Launch & Check Game'}));
+ expect((screen.getByRole('button',{name:'Close launch options'}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole('button',{name:'Play Shared name (Steam)'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Close launch options'}));
+ expect(screen.getByRole('region',{name:'Launch Shared name'})).toBeTruthy();
+ await act(async()=>finish({status:'no-log',detail:'Observation complete',freshLog:false,observedSeconds:10,findingCodes:[]}));
+ expect(screen.getByText('Observation complete')).toBeTruthy();
+ expect((screen.getByRole('button',{name:'Close launch options'}) as HTMLButtonElement).disabled).toBe(false);
 });
