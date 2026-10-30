@@ -7,3 +7,12 @@ test('records startup and reports a missing mounted application',()=>{const f=fi
 test('reports DOM presence without claiming successful rendering',()=>{const f=fixture(true);f.runTimer();assert.match(f.logs.at(-1),/Startup complete/);});
 test('captures module resource failures and reveals an error banner',()=>{const f=fixture();f.events.error({target:{src:'/assets/app.js'}});assert.match(f.banner.textContent,/Resource failed/);assert.equal(f.banner.hidden,false);});
 test('bounds rejected-promise diagnostics',()=>{const f=fixture();f.events.unhandledrejection({reason:'x'.repeat(9000)});assert.equal(f.logs.at(-1).length,4000);});
+test('image failures retain the loading banner without claiming startup failed',()=>{const f=fixture();f.banner.textContent='Loading interface';f.events.error({target:{tagName:'IMG',src:'/cover.png'}});assert.equal(f.banner.textContent,'Loading interface');assert.match(f.logs.at(-1),/Resource failed: \/cover.png/);});
+test('mounted image failures keep the startup banner hidden and allow image fallback',()=>{
+ const {JSDOM}=require('jsdom');const dom=new JSDOM('<div id="startup-status" hidden>Loading</div><div id="root"><main class="pm-app"><img id="cover" src="https://example.invalid/cover.jpg"></main></div>',{runScripts:'outside-only'});
+ try{const {window}=dom;const logs=[];window.console.error=message=>logs.push(message);window.setTimeout=()=>0;window.eval(code);
+ let fallback=false;const image=window.document.getElementById('cover');image.addEventListener('error',()=>{fallback=true;image.remove();});image.dispatchEvent(new window.Event('error'));
+ assert.equal(fallback,true);assert.equal(window.document.getElementById('startup-status').hidden,true);assert.ok(window.document.querySelector('#root .pm-app'));assert.match(logs.at(-1),/Resource failed/);
+ }finally{dom.window.close();}
+});
+test('stylesheet and JavaScript errors still reveal the startup banner',()=>{const f=fixture();f.banner.hidden=true;f.events.error({target:{tagName:'LINK',href:'/assets/app.css'}});assert.equal(f.banner.hidden,false);assert.match(f.banner.textContent,/app.css/);f.banner.hidden=true;f.events.error({message:'Startup crashed'});assert.equal(f.banner.hidden,false);assert.match(f.banner.textContent,/Startup crashed/);});
