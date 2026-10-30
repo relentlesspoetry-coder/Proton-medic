@@ -12,6 +12,7 @@ export function RepairTools({ game, onChanged }: { game: Game; onChanged: () => 
   const [loadingBackups, setLoadingBackups] = useState(true);
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const refreshBackups = useCallback(async () => {
@@ -19,8 +20,9 @@ export function RepairTools({ game, onChanged }: { game: Game; onChanged: () => 
     try {
       const found = await invoke<RepairBackup[]>('list_repair_backups', { appId: game.appId, libraryPath: game.libraryPath });
       setBackups(found);
+      setBackupError(null);
     } catch (err) {
-      setError(`Could not read saved backups: ${String(err)}`);
+      setBackupError(`Could not read saved backups: ${String(err)}`);
     } finally { setLoadingBackups(false); }
   }, [game.appId, game.libraryPath]);
 
@@ -77,6 +79,7 @@ export function RepairTools({ game, onChanged }: { game: Game; onChanged: () => 
       <p className="pm-repair-footnote">No deletion or privileged command is performed. This operation is not guaranteed to fix a game.</p>
     </div>}
     {error && <div role="alert" className="pm-repair-blocked"><AlertCircle size={17}/>{error}</div>}
+    {backupError && <div role="alert" className="pm-repair-blocked"><AlertCircle size={17}/>{backupError}</div>}
     {success && <div role="status" className="pm-repair-success"><CheckCircle2 size={18}/>{success}</div>}
     <details className="pm-backup-details" open={undefined}>
       <summary><RotateCcw size={16}/> Saved backups ({backups.length}) <ChevronDown size={16}/></summary>

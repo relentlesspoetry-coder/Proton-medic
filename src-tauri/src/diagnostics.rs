@@ -257,7 +257,17 @@ fn read_trimmed_from(reader: impl Read, limit: u64) -> Option<String> {
 }
 
 fn find_executable(name: &str) -> Option<PathBuf> {
-    env::split_paths(&env::var_os("PATH")?).map(|dir| dir.join(name)).find(|p| p.is_file())
+    find_executable_in(name, &env::var_os("PATH")?)
+}
+
+fn find_executable_in(name: &str, search_path: &std::ffi::OsStr) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    env::split_paths(search_path).map(|dir| dir.join(name)).find(|path| {
+        if !path.is_file() { return false; }
+        let Ok(path) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false; };
+        // Check effective credentials and ACLs; executable symlinks remain valid.
+        unsafe { libc::faccessat(libc::AT_FDCWD, path.as_ptr(), libc::X_OK, libc::AT_EACCESS) == 0 }
+    })
 }
 
 fn gpu_devices(root: &Path) -> Vec<String> {
@@ -388,6 +398,43 @@ mod tests {
         }
     }
     impl Drop for Fixture { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+
+    #[test]
+    fn executable_lookup_skips_nonexecutable_files_and_preserves_path_order() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Fixture::new();
+        let paths: Vec<PathBuf> = ["blocked", "first", "second"].iter().map(|name| dir.0.join(name)).collect();
+        for (index, path) in paths.iter().enumerate() {
+            fs::create_dir(path).unwrap();
+            let binary = path.join("vulkaninfo");
+            fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
+            fs::set_permissions(&binary, fs::Permissions::from_mode(if index == 0 { 0o644 } else { 0o755 })).unwrap();
+        }
+        let search_path = env::join_paths(&paths).unwrap();
+        assert_eq!(find_executable_in("vulkaninfo", &search_path), Some(paths[1].join("vulkaninfo")));
+        assert_eq!(find_executable_in("vulkaninfo", paths[0].as_os_str()), None);
+    }
+
+    #[test]
+    fn executable_lookup_accepts_symlinks_to_executable_files() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let dir = Fixture::new();
+        let target = dir.0.join("utility");
+        fs::write(&target, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        let binary = dir.0.join("vulkaninfo");
+        symlink(&target, &binary).unwrap();
+        assert_eq!(find_executable_in("vulkaninfo", dir.0.as_os_str()), Some(binary));
+    }
+
+    #[test]
+    fn executable_lookup_rejects_directories_and_dangling_symlinks() {
+        let dir = Fixture::new();
+        fs::create_dir(dir.0.join("vulkaninfo")).unwrap();
+        std::os::unix::fs::symlink(dir.0.join("missing"), dir.0.join("broken")).unwrap();
+        assert_eq!(find_executable_in("vulkaninfo", dir.0.as_os_str()), None);
+        assert_eq!(find_executable_in("broken", dir.0.as_os_str()), None);
+    }
 
     #[test]
     fn small_attribute_reads_bound_actual_bytes_instead_of_metadata() {
