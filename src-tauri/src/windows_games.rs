@@ -320,10 +320,10 @@ fn list_in(root:PathBuf,available_runtimes:Vec<Runtime>)->Result<Library,String>
 }
 pub fn install(name:String,installer:String,runtime_id:String,confirmed:bool)->Result<Game,String>{
     if !confirmed{return Err("Approve running the selected Windows installer".into());}
-    if name.trim().is_empty() || name.len()>120 || name.chars().any(char::is_control){return Err("Enter a game name of 1–120 characters".into());}
+    let name=validate_name(&name)?;
     let exe=windows_exe(Path::new(&installer))?;let runtime=runtime(&runtime_id)?;let root=root()?;
     let id=stamp()?;let dir=root.join(&id);directory(&dir,true)?;
-    let record=Record{id,name:name.trim().into(),runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None};save(&dir,&record)?;
+    let record=Record{id,name,runtime_id,installer:exe.to_string_lossy().into(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None};save(&dir,&record)?;
     spawn(dir,record,runtime,exe,true)
 }
 pub fn select_executable(id:String,path:String,confirmed:bool)->Result<Game,String>{
@@ -340,7 +340,7 @@ fn launch_in(root:&Path,id:&str)->Result<Game,String>{
     let(dir,r)=load(root,id)?;let exe=checked_exe(&dir,&r,Path::new(r.game_exe.as_deref().ok_or("Select the installed game's executable first")?))?;let runtime=runtime(&r.runtime_id)?;spawn(dir,r,runtime,exe,false)
 }
 fn validate_name(name:&str)->Result<String,String>{
-    if name.trim().is_empty() || name.len()>120 || name.chars().any(char::is_control){return Err("Enter a game name of 1–120 characters".into());}
+    if name.trim().is_empty() || name.chars().count()>120 || name.chars().any(char::is_control){return Err("Enter a game name of 1–120 characters".into());}
     Ok(name.trim().into())
 }
 pub fn register(name:String,path:String,prefix:String,runtime_id:String,confirmed:bool)->Result<Game,String>{
@@ -654,6 +654,26 @@ mod tests{
         std::os::unix::fs::symlink(f.0.join("b1.exe"),f.0.join("linked.exe")).unwrap();
         let result=search_executables(vec![f.0.clone(),f.0.clone()]);
         assert_eq!(result.executables,vec![f.0.join("b1.exe").to_string_lossy().into_owned()]);assert!(!result.truncated);
+    }
+    #[test] fn game_name_limits_count_characters_instead_of_utf8_bytes(){
+        for character in ["A","界","é","🎮"] {
+            let boundary=character.repeat(120);
+            assert_eq!(validate_name(&boundary).unwrap(),boundary);
+            assert!(validate_name(&character.repeat(121)).is_err());
+        }
+        assert_eq!(validate_name("  黒神話  ").unwrap(),"黒神話");
+        for invalid in ["","   ","Game\nName","Game\0Name"] {assert!(validate_name(invalid).is_err());}
+    }
+    #[test] fn unicode_game_name_survives_confirmation_removal_and_restore(){
+        let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();
+        let save_path=dir.join("compatdata/pfx/drive_c/save.dat");fs::create_dir_all(save_path.parent().unwrap()).unwrap();fs::write(&save_path,b"saved progress").unwrap();
+        let exe=f.0.join("game.exe");pe(&exe);let mut r=record(id);r.state="installer-exited".into();save(&dir,&r).unwrap();
+        let name="界".repeat(120);
+        let game=confirm_installation_in(&f.0,id,name.clone(),exe.to_string_lossy().into()).unwrap();assert_eq!(game.name,name);
+        set_hidden_in(&f.0,id,true).unwrap();set_hidden_in(&f.0,id,false).unwrap();
+        let (_,restored)=load(&f.0,id).unwrap();assert_eq!(restored.name,name);assert!(!restored.hidden);
+        assert_eq!(fs::read(&save_path).unwrap(),b"saved progress");
+        let library=list_in(f.0.clone(),vec![]).unwrap();assert_eq!(library.games.len(),1);assert_eq!(library.games[0].name,name);assert!(library.removed_games.is_empty());
     }
     #[test] fn registration_and_renaming_require_consent_before_io(){
         assert!(register("Game".into(),"/none.exe".into(),"/none".into(),"none".into(),false).unwrap_err().contains("Approve"));
