@@ -64,7 +64,10 @@ pub(crate) enum Value {
     Object(Vec<(String, Value)>),
 }
 
-fn tokenize(data: &str) -> Result<Vec<String>, String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Token { Text(String), Open, Close }
+
+fn tokenize(data: &str) -> Result<Vec<Token>, String> {
     let input = data.trim_start_matches('\u{feff}').as_bytes();
     let mut output = Vec::new();
     let mut i = 0;
@@ -88,7 +91,8 @@ fn tokenize(data: &str) -> Result<Vec<String>, String> {
                 }
                 if !closed { return Err("unterminated block comment".into()); }
             }
-            b'{' | b'}' => { output.push((input[i] as char).to_string()); i += 1; }
+            b'{' => { output.push(Token::Open); i += 1; }
+            b'}' => { output.push(Token::Close); i += 1; }
             b'"' => {
                 i += 1;
                 let mut bytes = Vec::new();
@@ -106,14 +110,14 @@ fn tokenize(data: &str) -> Result<Vec<String>, String> {
                     bytes.push(input[i]); i += 1;
                 }
                 if !closed { return Err("unterminated quoted string".into()); }
-                output.push(String::from_utf8_lossy(&bytes).into_owned());
+                output.push(Token::Text(String::from_utf8_lossy(&bytes).into_owned()));
             }
             _ => {
                 let start = i;
                 while i < input.len() && !input[i].is_ascii_whitespace() && input[i] != b'{' && input[i] != b'}' {
                     i += 1;
                 }
-                output.push(String::from_utf8_lossy(&input[start..i]).into_owned());
+                output.push(Token::Text(String::from_utf8_lossy(&input[start..i]).into_owned()));
             }
         }
         if output.len() > 200_000 { return Err("too many VDF tokens".into()); }
@@ -121,28 +125,32 @@ fn tokenize(data: &str) -> Result<Vec<String>, String> {
     Ok(output)
 }
 
-fn parse_pairs(tokens: &[String], pos: &mut usize, depth: usize, nested: bool) -> Result<Vec<(String, Value)>, String> {
+fn parse_pairs(tokens: &[Token], pos: &mut usize, depth: usize, nested: bool) -> Result<Vec<(String, Value)>, String> {
     if depth > MAX_VDF_DEPTH { return Err("VDF nesting limit reached".into()); }
     let mut pairs = Vec::new();
     while *pos < tokens.len() {
-        if tokens[*pos] == "}" {
-            if !nested { return Err("unexpected closing brace".into()); }
-            *pos += 1;
-            return Ok(pairs);
-        }
-        if tokens[*pos] == "{" { return Err("unexpected opening brace".into()); }
-        let key = tokens[*pos].clone();
+        let key = match &tokens[*pos] {
+            Token::Close => {
+                if !nested { return Err("unexpected closing brace".into()); }
+                *pos += 1;
+                return Ok(pairs);
+            }
+            Token::Open => return Err("unexpected opening brace".into()),
+            Token::Text(key) => key.clone(),
+        };
         *pos += 1;
         if *pos >= tokens.len() { return Err(format!("missing value for key {key}")); }
-        let value = if tokens[*pos] == "{" {
-            *pos += 1;
-            Value::Object(parse_pairs(tokens, pos, depth + 1, true)?)
-        } else if tokens[*pos] == "}" {
-            return Err(format!("missing value for key {key}"));
-        } else {
-            let value = Value::Text(tokens[*pos].clone());
-            *pos += 1;
-            value
+        let value = match &tokens[*pos] {
+            Token::Open => {
+                *pos += 1;
+                Value::Object(parse_pairs(tokens, pos, depth + 1, true)?)
+            }
+            Token::Close => return Err(format!("missing value for key {key}")),
+            Token::Text(text) => {
+                let value = Value::Text(text.clone());
+                *pos += 1;
+                value
+            }
         };
         pairs.push((key, value));
     }
@@ -464,6 +472,34 @@ mod tests {
         let state = obj_get(&parsed, "AppState").unwrap();
         assert_eq!(text_get(state, "name"), Some("It's \"Working\""));
         assert_eq!(text_get(state, "buildid"), Some("17"));
+    }
+
+    #[test]
+    fn quoted_brace_keys_and_values_remain_text() {
+        let parsed = parse_vdf(r#""{" "}" "}" "{" "nested" { "{" "}" "after" "kept" }"#).unwrap();
+        assert_eq!(text_get(&parsed, "{"), Some("}"));
+        assert_eq!(text_get(&parsed, "}"), Some("{"));
+        let nested = obj_get(&parsed, "nested").unwrap();
+        assert_eq!(text_get(nested, "{"), Some("}"));
+        assert_eq!(text_get(nested, "after"), Some("kept"));
+    }
+
+    #[test]
+    fn login_users_preserves_brace_persona_names_and_account_metadata() {
+        for name in ["{", "}"] {
+            let vdf = format!(r#""users" {{ "76561197960265729" {{ "PersonaName" "{name}" "MostRecent" "1" }} }}"#);
+            let parsed = parse_vdf(&vdf).unwrap();
+            let user = obj_get(obj_get(&parsed, "users").unwrap(), "76561197960265729").unwrap();
+            assert_eq!(text_get(user, "PersonaName"), Some(name));
+            assert_eq!(text_get(user, "MostRecent"), Some("1"));
+        }
+    }
+
+    #[test]
+    fn quoted_braces_do_not_balance_structural_braces() {
+        for vdf in [r#""root" { "name" "}""#, r#""root" { "name" }"#, r#""root" "{" }"#, "{ key value }"] {
+            assert!(parse_vdf(vdf).is_err(), "accepted malformed VDF: {vdf}");
+        }
     }
 
     #[test]
