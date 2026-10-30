@@ -64,6 +64,18 @@ it('retains the previous cover and shows failed import errors', async () => {
   expect(view.container.querySelector('img')?.getAttribute('src')).toBe(uri);
   fireEvent.error(view.container.querySelector('img')!);expect(view.container.querySelector('img')).toBeNull();
 });
+it.each(['rejected import', 'invalid response'])('keeps an initial cover fetch eligible after %s', async failure => {
+  let finish!:(value:string)=>void;
+  invoke.mockImplementationOnce(()=>new Promise<string>(resolve=>{finish=resolve;}));
+  if (failure==='rejected import') invoke.mockRejectedValueOnce('Image is too small');
+  else invoke.mockResolvedValueOnce('https://example.com/invalid.png');
+  open.mockResolvedValue('/covers/replacement.png');
+  const view=render(<GameCover source={windows} name="Example" onOpen={()=>{}}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Change cover for Example (Windows)'}));
+  await screen.findByRole('alert');
+  await act(async()=>{finish(uri);});
+  expect(view.container.querySelector('img')?.getAttribute('src')).toBe(uri);
+});
 it('defers cover loading until the card approaches the viewport', async () => {
   let observe!:(entries:{isIntersecting:boolean}[])=>void;const disconnect=vi.fn();
   vi.stubGlobal('IntersectionObserver',class { constructor(callback:typeof observe){observe=callback;} observe(){} disconnect=disconnect; });
