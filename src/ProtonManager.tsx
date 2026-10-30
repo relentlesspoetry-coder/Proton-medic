@@ -78,13 +78,14 @@ export function ProtonManager({ onChanged }: { onChanged: () => void }) {
       {selected && <div className="pm-proton-confirm"><p>{size(selected.size)} download · Extra space needed for extraction.</p>
         <label className="pm-report-approval"><input type="checkbox" checked={approved} disabled={busy || installing || installed} onChange={e => setApproved(e.target.checked)}/>I approve downloading and installing this GE-Proton release.</label>
         <button className="pm-button pm-button-primary" disabled={busy || installing || installed || !root || !approved} onClick={() => void run(async () => {
+          setCanceling(false);
           await invoke('install_proton_version', { tag, root, confirmed: true }); if (!alive.current) return;
           setLocal(old => old && ({ ...old, status: { phase: 'preparing', tag, downloaded: 0, total: selected.size, message: 'Checking release metadata…' } })); setApproved(false); refresh.current();
         })}>{installed ? 'Already installed' : 'Download and install'}</button>
       </div>}
       {local?.status && <div className="pm-proton-progress" role="status"><strong>{local.status.tag}</strong><p>{local.status.message}</p>
         {local.status.phase === 'downloading' && <><progress aria-label="Proton download progress" value={local.status.downloaded} max={local.status.total || 1}/><p>{size(local.status.downloaded)} / {size(local.status.total)}</p></>}
-        {installing && <button className="pm-button pm-button-secondary" disabled={canceling || busy} onClick={() => void run(async () => { await invoke('cancel_proton_download'); if (alive.current) setCanceling(true); })}>{canceling ? 'Cancel requested…' : 'Cancel download'}</button>}
+        {installing && <button className="pm-button pm-button-secondary" disabled={canceling || busy} onClick={() => void run(async () => { setCanceling(true); try { await invoke('cancel_proton_download'); } catch (error) { if (alive.current) setCanceling(false); throw error; } })}>{canceling ? 'Cancel requested…' : 'Cancel download'}</button>}
       </div>}
       {error && <p className="pm-repair-danger" role="alert">{error}</p>}{readError && <p className="pm-repair-danger" role="alert">{readError}</p>}
       {installing && <p className="pm-report-help">Keep Proton Medic open until installation finishes.</p>}

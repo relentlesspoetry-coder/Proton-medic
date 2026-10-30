@@ -21,3 +21,22 @@ it('clears approval when a refreshed inventory changes the destination',async()=
 it('refreshes slowly while idle and pauses in a hidden window',async()=>{vi.useFakeTimers();await start();await act(async()=>{await vi.advanceTimersByTimeAsync(29000);});expect(invoke).toHaveBeenCalledTimes(1);await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});expect(invoke).toHaveBeenCalledTimes(2);Object.defineProperty(document,'hidden',{configurable:true,value:true});fireEvent(document,new Event('visibilitychange'));await act(async()=>{await vi.advanceTimersByTimeAsync(60000);});expect(invoke).toHaveBeenCalledTimes(2);Object.defineProperty(document,'hidden',{configurable:true,value:false});await act(async()=>{fireEvent(document,new Event('visibilitychange'));});expect(invoke).toHaveBeenCalledTimes(3);});
 it('refreshes active downloads every second',async()=>{vi.useFakeTimers();invoke.mockResolvedValue({...local,status:{phase:'downloading',tag:'GE-Proton11-11',downloaded:10,total:100,message:'Downloading'}});await start();await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});expect(invoke).toHaveBeenCalledTimes(4);});
 it('does not overlap inventory requests after visibility changes',async()=>{vi.useFakeTimers();let resolve!:(value:typeof local)=>void;invoke.mockReturnValue(new Promise(r=>{resolve=r;}));await start();fireEvent(document,new Event('visibilitychange'));await act(async()=>{await vi.advanceTimersByTimeAsync(60000);});expect(invoke).toHaveBeenCalledTimes(1);await act(async()=>{resolve(local);});});
+it.each(['GE-Proton11-11','GE-Proton11-10'])('keeps cancellation available for %s after a delayed reply from a finished download',async(nextTag)=>{
+ vi.useFakeTimers();let status:any=null;let finishCancel!:()=>void;let cancellations=0;
+ invoke.mockImplementation((command:string,args:any)=>{
+  if(command==='list_proton_versions')return Promise.resolve({...local,status});
+  if(command==='fetch_proton_releases')return Promise.resolve(releases);
+  if(command==='install_proton_version'){status={phase:'downloading',tag:args.tag,downloaded:1,total:100,message:'Downloading'};return Promise.resolve();}
+  if(command==='cancel_proton_download'){cancellations++;return cancellations===1?new Promise<void>(resolve=>{finishCancel=resolve;}):Promise.resolve();}
+ });
+ await start();await click('Load latest releases');fireEvent.click(screen.getByLabelText('I approve downloading and installing this GE-Proton release.'));await click('Download and install');await click('Cancel download');
+ status={...status,phase:'canceled',message:'Canceled'};await act(async()=>vi.advanceTimersByTimeAsync(1000));await act(async()=>finishCancel());
+ fireEvent.change(screen.getByLabelText('Available version'),{target:{value:nextTag}});fireEvent.click(screen.getByLabelText('I approve downloading and installing this GE-Proton release.'));await click('Download and install');
+ await act(async()=>vi.advanceTimersByTimeAsync(2000));expect((screen.getByRole('button',{name:'Cancel download'}) as HTMLButtonElement).disabled).toBe(false);
+ await click('Cancel download');expect(cancellations).toBe(2);expect(screen.getByRole('button',{name:'Cancel requested…'})).toBeTruthy();
+});
+it('allows retrying cancellation when the request fails',async()=>{
+ invoke.mockImplementation(async(command:string)=>command==='list_proton_versions'?{...local,status:{phase:'downloading',tag:releases[0].tag,downloaded:1,total:100,message:'Downloading'}}:undefined);
+ await start();invoke.mockRejectedValueOnce(new Error('Cancel request failed'));await click('Cancel download');expect(screen.getByRole('alert').textContent).toContain('Cancel request failed');expect((screen.getByRole('button',{name:'Cancel download'}) as HTMLButtonElement).disabled).toBe(false);
+ await click('Cancel download');expect(screen.getByRole('button',{name:'Cancel requested…'})).toBeTruthy();
+});

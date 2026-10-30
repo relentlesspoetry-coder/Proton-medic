@@ -246,8 +246,14 @@ fn analyze_candidates(candidates: Vec<PathBuf>, app_id: &str, library_path: &str
 }
 
 fn read_trimmed(path: &Path, limit: u64) -> Option<String> {
-    if fs::metadata(path).ok()?.len() > limit { return None; }
-    fs::read_to_string(path).ok().map(|s| s.trim().into())
+    read_trimmed_from(File::open(path).ok()?, limit)
+}
+
+fn read_trimmed_from(reader: impl Read, limit: u64) -> Option<String> {
+    let mut bytes = Vec::new();
+    reader.take(limit.checked_add(1)?).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > limit { return None; }
+    String::from_utf8(bytes).ok().map(|s| s.trim().into())
 }
 
 fn find_executable(name: &str) -> Option<PathBuf> {
@@ -382,6 +388,21 @@ mod tests {
         }
     }
     impl Drop for Fixture { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+
+    #[test]
+    fn small_attribute_reads_bound_actual_bytes_instead_of_metadata() {
+        let mut input = std::io::Cursor::new(b"0x10de\nextra");
+        assert_eq!(read_trimmed_from(&mut input, 6), None);
+        assert_eq!(input.position(), 7);
+        assert_eq!(read_trimmed_from(&b"0x10de\n"[..], 7).as_deref(), Some("0x10de"));
+        assert_eq!(read_trimmed_from(&[255u8][..], 7), None);
+        let f = Fixture::new();
+        let path = f.0.join("vendor");
+        fs::write(&path, "0x10de\n").unwrap();
+        assert_eq!(read_trimmed(&path, 7).as_deref(), Some("0x10de"));
+        // Procfs attributes expose usable content despite a zero metadata size.
+        assert!(read_trimmed(Path::new("/proc/sys/kernel/osrelease"), 4096).is_some());
+    }
 
     #[test]
     fn recognizes_independent_signatures_without_declaring_root_cause() {

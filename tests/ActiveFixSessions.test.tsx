@@ -76,3 +76,40 @@ it('retains the latest list when earlier refreshes finish out of order', async (
   await act(async () => { previous.resolve([active]); });
   expect(screen.queryByRole('region', { name: 'Unfinished repairs' })).toBeNull();
 });
+
+it('clears a recovered listing error after a successful authoritative refresh', async () => {
+  invoke.mockRejectedValueOnce('Temporary listing failure').mockResolvedValue([]);
+  render(<ActiveFixSessions/>);
+  await screen.findByRole('alert');
+  await act(async () => { window.dispatchEvent(new Event('pm-fix-session')); });
+  expect(screen.queryByRole('region', { name: 'Unfinished repairs' })).toBeNull();
+});
+
+it('clears a rollback error after the game view keeps that same session', async () => {
+  let sessions = [active];
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'list_fix_sessions') return sessions;
+    if (command === 'rollback_game_fix') throw new Error('Close Steam first');
+    if (command === 'finish_game_fix') sessions = [];
+    return null;
+  });
+  render(<><ActiveFixSessions/><FixAndTest game={game}/></>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Roll back', exact: true }));
+  await screen.findByRole('alert');
+  fireEvent.click(screen.getByRole('button', { name: 'Keep this selection' }));
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Unfinished repairs' })).toBeNull());
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('preserves an action error while its session still exists through successful refreshes', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'list_fix_sessions') return [active];
+    throw new Error('Newer mapping prevents rollback');
+  });
+  render(<ActiveFixSessions/>);
+  fireEvent.click(await screen.findByRole('button', { name: 'Roll back' }));
+  await screen.findByRole('alert');
+  await act(async () => { window.dispatchEvent(new Event('pm-fix-session')); });
+  expect(screen.getByRole('alert').textContent).toContain('Newer mapping prevents rollback');
+  expect(screen.getByRole('button', { name: 'Keep selection' })).toBeTruthy();
+});
