@@ -544,6 +544,7 @@ dd { margin: 0; overflow-wrap: anywhere; }
   .pm-windows-game { background: #0b284c; }
 }
 @media (forced-colors: active) {
+  .pm-memory-trend polyline { stroke: CanvasText; }
   .pm-section, .pm-action-card, .pm-nav-link.active, .pm-update-status, .pm-windows-game, .pm-tag, .pm-library-card, .pm-library-sources button[aria-pressed=true] { border: 1px solid CanvasText; }
   .pm-button, .pm-subtle-button { border: 1px solid ButtonText; }
 }

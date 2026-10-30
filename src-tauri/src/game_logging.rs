@@ -48,6 +48,17 @@ fn options(original: &str) -> Result<String,String> {
     }
     if quote.is_some(){return Err("Unbalanced launch-option quotes".into());}
     if let Some(a)=start {spans.push((a,original.len()));}
+    // A wrapper that clears its environment would discard a prepended logging assignment.
+    let mut environment_wrapper = false;
+    for &(a,b) in &spans {
+        let token: String = original[a..b].chars().filter(|c| *c!='\'' && *c!='"').collect();
+        if token.contains("%command%") { break; }
+        if Path::new(&token).file_name().is_some_and(|name| name=="env") { environment_wrapper=true; }
+        if environment_wrapper && (token=="-" || token=="--ignore-environment" ||
+            (token.starts_with('-') && !token.starts_with("--") && token[1..].contains('i'))) {
+            return Err("Environment-clearing launch wrapper preserved unchanged. Automatic log setup cannot retain PROTON_LOG through this wrapper.".into());
+        }
+    }
     let log:Vec<_>=spans.iter().copied().filter(|(a,b)|original[*a..*b].starts_with("PROTON_LOG=")).collect();
     if original.contains("PROTON_LOG") && log.len()!=1 {return Err("Ambiguous Proton logging assignment; existing options preserved".into());}
     if let Some(&(a,b))=log.first() {
@@ -230,6 +241,15 @@ mod tests {
     }
     #[test] fn refuses_ambiguous_or_complex_scripts(){
         for s in ["echo a; %command%", "PROTON_LOG=1 PROTON_LOG=0 %command%", "%command% %command%", "env -u PROTON_LOG %command%", "PROTON_LOG_DIR=/custom %command%", "sh -c 'exec $0' %command%"] {assert!(options(s).is_err(),"{s}");}
+    }
+    #[test] fn refuses_environment_clearing_wrappers_without_changing_options() {
+        for value in ["env -i %command%", "env --ignore-environment %command%",
+            "PROTON_LOG=1 env -i %command%", "'/usr/bin/env' '-i' %command%", "env - %command%"] {
+            assert!(options(value).unwrap_err().contains("preserved unchanged"),"{value}");
+        }
+        assert_eq!(options("env %command%").unwrap(),"PROTON_LOG=1 env %command%");
+        assert_eq!(options("env PROTON_LOG=0 %command%").unwrap(),"env PROTON_LOG=1 %command%");
+        assert_eq!(options("%command% -i").unwrap(),"PROTON_LOG=1 %command% -i");
     }
     #[test] fn edits_only_target_leaf_and_preserves_comments(){
         let value=options(launch_value(CONFIG,"123").unwrap().as_deref().unwrap()).unwrap();

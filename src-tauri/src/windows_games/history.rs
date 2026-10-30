@@ -93,6 +93,7 @@ pub(super) fn list_in(dir: &Path, record: &Record, active: bool) -> Result<Histo
         let id = item.file_name().to_string_lossy().into_owned();
         if !valid_id(&id) { continue; }
         let Some(time) = id.rsplit('-').next().and_then(|s|s.parse::<u128>().ok()) else {continue};
+        if fs::symlink_metadata(item.path().join("history.json")).is_err_and(|e|e.kind() == std::io::ErrorKind::NotFound) { continue; }
         newest.push(Reverse((time, id))); if newest.len() > LIMIT { newest.pop(); }
     }
     let mut ordered = newest.into_iter().map(|Reverse(value)|value).collect::<Vec<_>>(); ordered.sort_by(|a,b|b.cmp(a));
@@ -145,6 +146,19 @@ pub fn list(id: String) -> Result<History, String> {
         let history=list_in(&f.0,&f.record("75-25"),true).unwrap();
         assert_eq!(history.entries.len(),20);assert_eq!(history.entries[0].id,"75-25");assert_eq!(history.entries[19].id,"94-6");
         assert_eq!(fs::read_dir(f.0.join("logs")).unwrap().count(),25);
+    }
+    #[test] fn empty_run_directories_do_not_displace_saved_receipts() {
+        let f=Fixture::new();
+        for time in 1..=20 { f.begin(&format!("1-{time}")); }
+        for time in 21..=40 { fs::create_dir(f.0.join(format!("logs/1-{time}"))).unwrap(); }
+        let record=f.record("1-20");
+        let history=list_in(&f.0,&record,false).unwrap();
+        assert_eq!(history.entries.len(),20);assert!(history.warnings.is_empty());
+        assert_eq!(fs::read_dir(f.0.join("logs")).unwrap().count(),40);
+        let malformed=f.0.join("logs/1-40/history.json");fs::write(&malformed,"broken").unwrap();
+        let history=list_in(&f.0,&record,false).unwrap();
+        assert_eq!(history.entries.len(),19);assert_eq!(history.warnings.len(),1);
+        assert_eq!(fs::read_to_string(malformed).unwrap(),"broken");
     }
     #[test] fn completion_keeps_original_runtime_and_caches_error_summaries() {
         let f=Fixture::new();let mut record=f.begin("1-100");let logs=f.0.join("logs/1-100");

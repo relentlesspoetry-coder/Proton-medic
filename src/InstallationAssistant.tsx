@@ -9,6 +9,7 @@ export function InstallationAssistant({game,busy,run,onConfirm}:Props){
  const [error,setError]=useState('');
  const [selected,setSelected]=useState('');
  const [name,setName]=useState(game.name);
+ const [nameEdited,setNameEdited]=useState(false);
  const [approved,setApproved]=useState(false);
  const [shortcut,setShortcut]=useState(false);
  useEffect(()=>{
@@ -21,8 +22,8 @@ export function InstallationAssistant({game,busy,run,onConfirm}:Props){
  {!review&&!error&&<p role="status">Looking for game executables…</p>}
  {error&&<p role="status">Automatic discovery is unavailable. Use Select installed game .exe below to choose it manually.</p>}
  {review&&(!review.candidates.length?<p>No likely game executable found. Choose it manually below, including files on other drives.</p>:<form onSubmit={event=>{event.preventDefault();if(selected&&name.trim()&&approved)void run(()=>onConfirm(name,selected,shortcut));}}>
- <div className="pm-install-choice"><GameIcon source={{kind:'candidate',id:game.id,executable:selected||null}}/><label>Game executable<select aria-label={'Installed executable for '+game.name} value={selected} disabled={busy} onChange={event=>{const path=event.target.value;setSelected(path);setApproved(false);const candidate=review.candidates.find(c=>c.path===path);if(candidate&&/setup|install/i.test(game.name)&&name===game.name)setName(candidate.suggestedName);}}><option value="">Choose a game executable…</option>{review.candidates.map(candidate=><option key={candidate.path} value={candidate.path}>{candidate.path}</option>)}</select></label></div>
- <label className="pm-review-name">Game name<input aria-label={'Installed game name for '+game.name} value={name} maxLength={120} disabled={busy} onChange={event=>{setName(event.target.value);setApproved(false);}}/></label>
+ <div className="pm-install-choice"><GameIcon source={{kind:'candidate',id:game.id,executable:selected||null}}/><label>Game executable<select aria-label={'Installed executable for '+game.name} value={selected} disabled={busy} onChange={event=>{const path=event.target.value;setSelected(path);setApproved(false);const candidate=review.candidates.find(c=>c.path===path);if(candidate&&/setup|install/i.test(game.name)&&!nameEdited)setName(candidate.suggestedName);}}><option value="">Choose a game executable…</option>{review.candidates.map(candidate=><option key={candidate.path} value={candidate.path}>{candidate.path}</option>)}</select></label></div>
+ <label className="pm-review-name">Game name<input aria-label={'Installed game name for '+game.name} value={name} maxLength={120} disabled={busy} onChange={event=>{setName(event.target.value);setNameEdited(true);setApproved(false);}}/></label>
  <label className="pm-launch-consent"><input type="checkbox" checked={approved} disabled={busy} onChange={event=>setApproved(event.target.checked)}/><span>I trust the selected executable and approve saving this game.</span></label>
  <label className="pm-launch-consent"><input type="checkbox" checked={shortcut} disabled={busy} onChange={event=>setShortcut(event.target.checked)}/><span>Create desktop and applications-menu shortcuts</span></label>
  <button type="submit" className="pm-button pm-button-primary" disabled={busy||!selected||!name.trim()||!approved}>Confirm game</button></form>)}
