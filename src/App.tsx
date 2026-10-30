@@ -67,7 +67,7 @@ export default function App() {
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const autoControl = useAutoFixControl();
-  const [autoMessage, setAutoMessage] = useState<string | null>(null);
+  const [autoMessage, setAutoMessage] = useState<{ gameKey: string; message: string } | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [libraryPage, setLibraryPage] = useState(0);
@@ -145,15 +145,17 @@ export default function App() {
 
   const selectAutomatically = useCallback(async (appId: string, libraryPath: string) => {
     setAutoBusy(true);
+    setAutoMessage(null);
+    const selectionKey = gameKey({ appId, libraryPath });
     try {
       const result = await invoke<AutoSelection>('auto_select_proton', { appId, libraryPath, confirmed: true });
-      setAutoMessage(result.changed
+      setAutoMessage({ gameKey: selectionKey, message: result.changed
         ? `${result.gameName}: ${result.toolName} selected. Restart Steam, then test your game. Config backup: ${result.backupPath}`
-        : `${result.gameName}: ${result.toolName} is already selected.`);
+        : `${result.gameName}: ${result.toolName} is already selected.` });
       // A new scan shows the updated per-game override.
       if (result.changed) void scanGames();
     } catch (e) {
-      setAutoMessage(`Could not apply the selection: ${String(e)}`);
+      setAutoMessage({ gameKey: selectionKey, message: `Could not apply the selection: ${String(e)}` });
     } finally { setAutoBusy(false); }
   }, [scanGames]);
 
@@ -230,7 +232,7 @@ export default function App() {
             { id: 'proton', label: 'Proton', content: <>
           <GameProtonPicker key={gameKey(selectedGame)} game={selectedGame} onChanged={() => void scanGames()} onManage={() => setPage('protons')}/>
           <ProtonAdvisor advice={advice?.games.find(a => a.appId === selectedGame.appId && a.libraryPath === selectedGame.libraryPath)} loading={advising}
-            applying={autoBusy} message={autoMessage} onApply={() => void selectAutomatically(selectedGame.appId, selectedGame.libraryPath)}/>
+            applying={autoBusy} message={autoMessage?.gameKey === gameKey(selectedGame) ? autoMessage.message : null} onApply={() => void selectAutomatically(selectedGame.appId, selectedGame.libraryPath)}/>
             </> },
             { id: 'launch', label: 'Launch & repair', content: <>
           <FixAndTest key={gameKey(selectedGame)} game={selectedGame}/>
@@ -260,7 +262,7 @@ export default function App() {
         </section><details className="pm-section pm-technical"><summary>Advanced system details <ChevronDown size={17}/></summary>{report && <div className="pm-system-advanced"><h3>Graphics devices</h3>{report.system.gpuDevices.map((g,i) => <pre key={i}>{g}</pre>)}<h3>Vulkan ICD files</h3>{report.system.icdManifests.map((v,i) => <pre key={i}>{v}</pre>)}{report.system.notes.map((n,i) => <p key={i}>{n}</p>)}</div>}</details></>}
 
       {page === 'settings' && <div className="pm-page-title"><div><h1>Settings</h1><p>Manage automatic fixes and privacy.</p></div></div>}
-      {page === 'settings' && (autoControl.message || autoMessage) && <p className="pm-auto-message" role="status">{autoControl.message || autoMessage}</p>}
+      {page === 'settings' && (autoControl.message || autoMessage) && <p className="pm-auto-message" role="status">{autoControl.message || autoMessage?.message}</p>}
       <AutoLogMonitor enabled={autoControl.enabled} controlPending={autoControl.pending} onToggle={enabled => void autoControl.toggle(enabled)} expanded={page === 'settings'}/>
       {page === 'settings' && <><SupportReport/><section className="pm-section"><div className="pm-section-heading"><div><h2>Privacy & safety</h2><p>Game scans and logs stay on this computer.</p></div><ShieldCheck size={23} className="pm-green"/></div><div className="pm-safety-grid"><div><ShieldCheck size={20}/><h3>Private scans</h3><p>Diagnostics stay local, with no telemetry or administrator access.</p></div><div><HardDrive size={20}/><h3>Recoverable repairs</h3><p>Approved repairs archive data on the same library drive. Close Steam before repairing or restoring.</p></div><div><Download size={20}/><h3>Verified updates</h3><p>Update checks contact GitHub. Missing Steam covers are requested from Steam using the game’s app ID. Custom covers stay local.</p></div></div></section>
         <details className="pm-section pm-technical"><summary>Available Proton versions ({scan?.compatibilityTools.length ?? 0}) <ChevronDown size={17}/></summary>{scan?.compatibilityTools.length ? scan.compatibilityTools.map(tool => <div className="pm-discovery" key={tool.path}><Layers size={18}/><div><strong>{tool.name}</strong><small>{tool.source} · {tool.path}</small></div></div>) : <p>No compatibility tools detected.</p>}</details>
