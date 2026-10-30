@@ -476,6 +476,11 @@ fn icon_path_in(root:&Path,id:&str)->Option<PathBuf>{
     source.found.then_some(icon)
 }
 pub fn icon_path(id:&str)->Option<PathBuf>{icon_path_in(&root().ok()?,id)}
+pub(crate) fn validate_cover_id(id:&str)->Result<(),String>{
+    let (_,record)=load(&root()?,id)?;
+    if record.hidden{return Err("Choose a visible Windows game".into());}
+    Ok(())
+}
 pub fn icon(id:String)->Result<Option<String>,String>{
     let root=root()?;load(&root,&id)?;
     let Some(path)=icon_path_in(&root,&id) else{return Ok(None)};
