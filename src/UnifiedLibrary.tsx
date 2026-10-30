@@ -4,6 +4,7 @@ import { ArrowRight, Play, Plus, RefreshCw, Search, Star, X } from 'lucide-react
 import type { Game as SteamGame } from './types';
 import type { Game as WindowsGame, Library } from './WindowsGames';
 import { GameIcon } from './GameIcon';
+import { GameCover } from './GameCover';
 import { LaunchTest } from './LaunchTest';
 import { PagedList } from './PagedList';
 export type LibraryFilter='all'|'favorites'|'issues'|'missing'|'prefix';
@@ -129,7 +130,7 @@ export function UnifiedLibrary(props:Props){
    {visible.length?<PagedList className="pm-library-grid" key={`${props.query}:${props.filter}:${props.source}:${props.sort}`} items={visible} render={item=>{
     const source=sourceName(item);const favorite=favorites.has(item.key);
     return <article className="pm-library-card" key={item.key}>
-     <button className="pm-library-art" aria-label={`Open ${item.name} (${source})`} onClick={()=>openItem(item)}><GameIcon className="pm-library-cover" source={iconSource(item)}/></button>
+     <GameCover name={item.name} source={{source:item.kind,id:item.kind==='steam'?item.game.appId:item.game.id,libraryPath:item.kind==='steam'?item.game.libraryPath:null}} onOpen={()=>openItem(item)}/>
      <div className="pm-library-card-body">
       <strong className="pm-library-card-title">{item.name}</strong>
       <div className="pm-library-card-meta"><span>{source} · {runtimeName(item)}</span>{props.sort==='recent'&&<small>{item.recent?`${item.kind==='steam'?'Last played':'Last launched'} ${new Date(item.recent).toLocaleDateString()}`:'Date unknown'}</small>}</div>

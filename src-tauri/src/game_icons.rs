@@ -126,6 +126,12 @@ pub fn remember_steam(scan:&crate::scanner::ScanReport){
         index.games=scan.games.iter().map(|g|(g.app_id.clone(),g.library_path.clone())).collect();
     }
 }
+pub(crate) fn steam_roots(app_id:&str,library_path:&str)->Result<Vec<PathBuf>,String>{
+    if app_id.is_empty() || app_id.len()>12 || !app_id.bytes().all(|b|b.is_ascii_digit()){return Err("Invalid Steam app ID".into());}
+    let index=STEAM_INDEX.read().map_err(|_|"Steam artwork index unavailable")?;
+    if !index.games.contains(&(app_id.to_owned(),library_path.to_owned())){return Err("Choose a scanned Steam game".into());}
+    Ok(index.roots.clone())
+}
 pub fn steam_icon(app_id:String,library_path:String)->Result<Option<String>,String>{
     let roots={
         let index=STEAM_INDEX.read().map_err(|_|"Steam artwork index unavailable")?;

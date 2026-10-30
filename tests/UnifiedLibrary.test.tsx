@@ -19,7 +19,7 @@ afterEach(()=>{cleanup();vi.restoreAllMocks();vi.useRealTimers();});
 it('combines identical names without merging source identities or showing removed profiles',async()=>{
  await mount();expect(screen.getByRole('button',{name:'Open Shared name (Steam)'})).toBeTruthy();expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();expect(screen.queryByText('Hidden game')).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Open Shared name (Windows)'}));expect(onWindows).toHaveBeenCalledWith(windows);expect(onSteam).not.toHaveBeenCalled();
- expect(invoke.mock.calls.every(c=>['list_windows_games','get_windows_game_icon','get_steam_game_icon'].includes(c[0]))).toBe(true);
+ expect(invoke.mock.calls.every(c=>['list_windows_games','get_windows_game_icon','get_steam_game_icon','get_game_cover'].includes(c[0]))).toBe(true);
 });
 it('filters by source and searches both game collections',async()=>{
  await mount();await choose('Game source','windows');expect(screen.queryByRole('button',{name:'Open Shared name (Steam)'})).toBeNull();
