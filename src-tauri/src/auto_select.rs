@@ -198,7 +198,7 @@ pub(crate) fn internal_id(name:&str,path:&Path)->Result<String,String>{
         return Ok(names[0].clone());
     }
     let lower=name.to_ascii_lowercase();
-    if lower=="proton experimental" {return Ok("proton_experimental".into());}
+    if matches!(lower.as_str(), "proton experimental" | "proton - experimental") {return Ok("proton_experimental".into());}
     if lower=="proton hotfix" {return Ok("proton_hotfix".into());}
     if let Some(suffix)=lower.strip_prefix("proton ") {
         if let Some(major)=suffix.split('.').next() {
@@ -484,6 +484,22 @@ pub(crate) fn select_tracked_with_control(app_id:String,library_path:String,conf
         fs::write(dir.join("compatibilitytool.vdf"),r#""compat_tools" { "GE-Proton11-4-x86_64" { "install_path" "." } }"#).unwrap();
         assert_eq!(internal_id("SomethingElse",&dir).unwrap(),"GE-Proton11-4-x86_64");
         fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test] fn official_experimental_directory_resolves_without_custom_manifest() {
+        let dir=std::env::temp_dir().join(format!("pm-experimental-{}-{}",std::process::id(),unix_stamp().unwrap()));
+        let root=dir.join(".local/share/Steam");
+        let tool=root.join("steamapps/common/Proton - Experimental");
+        fs::create_dir_all(&tool).unwrap();
+        // Official Steam depots do not include a custom compatibilitytool.vdf.
+        let scan=scanner::scan_home(&dir);
+        let selected=scan.compatibility_tools.iter().find(|t|t.path==tool.to_string_lossy().as_ref()).unwrap();
+        assert_eq!(selected.name,"Proton - Experimental");
+        let id=internal_id(&selected.name,Path::new(&selected.path)).unwrap();
+        assert_eq!(id,"proton_experimental");
+        let (updated,changed)=replacement_text(CONFIG,"123",&id).unwrap();
+        assert!(changed);
+        assert!(updated.contains("\"123\" { \"name\" \"proton_experimental\""));
+        fs::remove_dir_all(dir).unwrap();
     }
     #[test] fn backup_and_write_is_atomic_for_fixture(){
         let dir=std::env::temp_dir().join(format!("pm-config-{}-{}",std::process::id(),unix_stamp().unwrap()));
