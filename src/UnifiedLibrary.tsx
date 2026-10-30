@@ -35,12 +35,19 @@ interface Props {
  onSteam:(game:SteamGame)=>void;onWindows:(game:WindowsGame)=>void;steamStatus:(game:SteamGame)=>ReactNode;
 }
 export function UnifiedLibrary(props:Props){
+ const [windowVisible,setWindowVisible]=useState(!document.hidden);
  const [windows,setWindows]=useState<WindowsGame[]>([]);
  const [warnings,setWarnings]=useState<string[]>([]);
  const [loaded,setLoaded]=useState(false);const [error,setError]=useState('');const [retry,setRetry]=useState(0);
  const [favorites,setFavorites]=useState(()=>{try{return readFavorites();}catch{return new Set<string>();}});
  const [favoriteError,setFavoriteError]=useState(()=>{try{readFavorites();return '';}catch{return 'Saved favorites could not be read. They have been left unchanged.';}});
  useEffect(()=>{
+  const change=()=>setWindowVisible(!document.hidden);
+  document.addEventListener('visibilitychange',change);
+  return()=>document.removeEventListener('visibilitychange',change);
+ },[]);
+ useEffect(()=>{
+  if(!windowVisible)return;
   let stopped=false;let timer:ReturnType<typeof setTimeout>;
   const refresh=async()=>{
    try{
@@ -51,7 +58,7 @@ export function UnifiedLibrary(props:Props){
    finally{if(!stopped)timer=setTimeout(()=>void refresh(),5000);}
   };
   void refresh();return()=>{stopped=true;clearTimeout(timer);};
- },[props.refreshKey,retry]);
+ },[windowVisible,props.refreshKey,retry]);
  useEffect(()=>{
   const sync=(event:StorageEvent)=>{if(event.key!==FAVORITES&&event.key!==null)return;try{setFavorites(readFavorites());setFavoriteError('');}catch{setFavoriteError('Saved favorites could not be read. They have been left unchanged.');}};
   window.addEventListener('storage',sync);return()=>window.removeEventListener('storage',sync);

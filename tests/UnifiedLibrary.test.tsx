@@ -14,7 +14,7 @@ function Harness({games=[steam],refreshKey=0}:{games?:Game[];refreshKey?:number}
 }
 const choose=async(name:string,value:string)=>{await act(async()=>{fireEvent.change(screen.getByRole('combobox',{name}),{target:{value}});});};
 const mount=async()=>{render(<Harness/>);await act(async()=>{});};
-beforeEach(()=>{vi.useFakeTimers();localStorage.clear();invoke.mockReset();onSteam.mockReset();onWindows.mockReset();windowsData={games:[windows],removedGames:[{...windows,id:'999',name:'Hidden game'}],warnings:[],runtimes:[]};invoke.mockImplementation(async(command:string)=>command==='list_windows_games'?windowsData:null);});
+beforeEach(()=>{vi.useFakeTimers();vi.spyOn(document,'hidden','get').mockReturnValue(false);localStorage.clear();invoke.mockReset();onSteam.mockReset();onWindows.mockReset();windowsData={games:[windows],removedGames:[{...windows,id:'999',name:'Hidden game'}],warnings:[],runtimes:[]};invoke.mockImplementation(async(command:string)=>command==='list_windows_games'?windowsData:null);});
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.useRealTimers();});
 it('combines identical names without merging source identities or showing removed profiles',async()=>{
  await mount();expect(screen.getByRole('button',{name:'Open Shared name (Steam)'})).toBeTruthy();expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();expect(screen.queryByText('Hidden game')).toBeNull();
@@ -55,4 +55,29 @@ it('keeps both collections visible during a Windows refresh failure and recovers
 it('ignores an older Windows response after the scan refresh key changes',async()=>{
  let finish!:(value:unknown)=>void;invoke.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));const view=render(<Harness refreshKey={0}/>);view.rerender(<Harness refreshKey={1}/>);await act(async()=>{});
  await act(async()=>finish({games:[{...windows,name:'Old response'}],warnings:[],runtimes:[]}));expect(screen.queryByText('Old response')).toBeNull();expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();
+});
+const inventoryCalls=()=>invoke.mock.calls.filter(call=>call[0]==='list_windows_games').length;
+const visibility=async(hidden:boolean)=>{
+ vi.spyOn(document,'hidden','get').mockReturnValue(hidden);
+ await act(async()=>{document.dispatchEvent(new Event('visibilitychange'));});
+};
+it('keeps loaded games while hidden and refreshes immediately when shown',async()=>{
+ await mount();expect(inventoryCalls()).toBe(1);
+ await visibility(true);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(30000);});
+ expect(inventoryCalls()).toBe(1);expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();
+ await visibility(false);expect(inventoryCalls()).toBe(2);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});expect(inventoryCalls()).toBe(3);
+ cleanup();await act(async()=>{await vi.advanceTimersByTimeAsync(10000);});expect(inventoryCalls()).toBe(3);
+});
+it('does not scan on a hidden mount and ignores the response from before hiding',async()=>{
+ vi.spyOn(document,'hidden','get').mockReturnValue(true);await mount();expect(inventoryCalls()).toBe(0);
+ let finish!:(value:unknown)=>void;
+ invoke.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ await visibility(false);expect(inventoryCalls()).toBe(1);
+ await visibility(true);
+ await act(async()=>finish({games:[{...windows,name:'Obsolete response'}],warnings:[],runtimes:[]}));
+ expect(screen.queryByText('Obsolete response')).toBeNull();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(30000);});expect(inventoryCalls()).toBe(1);
+ await visibility(false);expect(inventoryCalls()).toBe(2);expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();
 });
