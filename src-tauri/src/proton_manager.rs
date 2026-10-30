@@ -150,10 +150,24 @@ pub fn start(tag:String,root:String,confirmed:bool)->Result<(),String>{
         match result{Ok(())=>update("installed",&tag,0,0,"Installed. Restart Steam to load the new version; then choose it for a game."),Err(e)=>update(if CANCEL.load(Ordering::Acquire){"canceled"}else{"failed"},&tag,0,0,&e)}BUSY.store(false,Ordering::Release);
     });Ok(())
 }
-pub fn umu()->Option<PathBuf>{std::env::var_os("PATH").and_then(|p|std::env::split_paths(&p).filter(|p|p.is_absolute()).find_map(|p|{let p=p.join("umu-run");fs::metadata(&p).ok().filter(|m|m.is_file()&&m.permissions().mode()&0o111!=0).map(|_|p)}))}
+pub fn umu()->Option<PathBuf>{std::env::var_os("PATH").and_then(|p|umu_in(&p))}
+fn umu_in(path:&std::ffi::OsStr)->Option<PathBuf>{
+    std::env::split_paths(path).filter(|p|p.is_absolute()).map(|p|p.join("umu-run"))
+        .find(|p|crate::windows_games::executable_access(p))
+}
 
 #[cfg(test)] mod tests {
     use super::*;
+    #[test] fn umu_skips_inaccessible_candidates_and_preserves_symlink_path(){
+        let f=Fixture::new();let a=f.0.join("first");let b=f.0.join("second");fs::create_dir(&a).unwrap();fs::create_dir(&b).unwrap();
+        let denied=a.join("umu-run");fs::write(&denied,"#!/bin/sh\nexit 0\n").unwrap();fs::set_permissions(&denied,fs::Permissions::from_mode(0o641)).unwrap();
+        let target=f.0.join("launcher");fs::write(&target,"#!/bin/sh\nexit 0\n").unwrap();fs::set_permissions(&target,fs::Permissions::from_mode(0o755)).unwrap();
+        let alias=b.join("umu-run");std::os::unix::fs::symlink(&target,&alias).unwrap();
+        let path=std::env::join_paths([&a,&b]).unwrap();
+        let expected=if std::process::Command::new(&denied).status().is_ok(){denied.clone()}else{alias.clone()};
+        assert_eq!(umu_in(&path),Some(expected));
+        fs::set_permissions(&denied,fs::Permissions::from_mode(0o644)).unwrap();assert_eq!(umu_in(&path),Some(alias));
+    }
     struct Fixture(PathBuf);
     impl Fixture {fn new()->Self{let p=std::env::temp_dir().join(format!("pm-proton-{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));fs::create_dir(&p).unwrap();Self(p)}}
     impl Drop for Fixture {fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
