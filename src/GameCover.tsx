@@ -43,10 +43,11 @@ export function GameCover({ source, name, onOpen }: Props) {
     try {
       const path = await open({ multiple: false, title: `Choose cover for ${name}`, filters: [{ name: 'Game cover (PNG or JPEG)', extensions: ['png', 'jpg', 'jpeg'] }] });
       if (typeof path !== 'string' || !mounted.current || current.current !== key) return;
-      const request = ++serial.current;
+      const request = serial.current;
       const uri = await invoke<string>('set_game_cover', { ...source, path, confirmed: true });
       if (!mounted.current || current.current !== key || request !== serial.current) return;
       if (!isImage(uri)) throw new Error('The selected cover could not be displayed.');
+      ++serial.current;
       setImage({ key, uri });
     } catch (failure) {
       if (mounted.current && current.current === key) setError(`Could not change cover: ${String(failure)}`);

@@ -11,33 +11,9 @@ fn dimensions(bytes:&[u8])->Option<(&'static str,u32,u32)>{
         return Some(("image/png",u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?),u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?)));
     }
     if !bytes.starts_with(b"\xff\xd8") || !bytes.ends_with(b"\xff\xd9"){return None;}
-    let mut at=2;let mut frame=None;let mut scan=false;
-    while at<bytes.len(){
-        if *bytes.get(at)?!=0xff{return None;}while bytes.get(at)==Some(&0xff){at+=1;}
-        let marker=*bytes.get(at)?;at+=1;
-        if marker==0xd9{return if scan && at==bytes.len(){frame}else{None};}
-        if marker==0x01 || (0xd0..=0xd7).contains(&marker){continue;}
-        let size=u16::from_be_bytes(bytes.get(at..at+2)?.try_into().ok()?) as usize;
-        if size<2 || at.checked_add(size)?>bytes.len(){return None;}
-        if matches!(marker,0xc0|0xc1|0xc2){
-            if size<8{return None;}
-            let height=u16::from_be_bytes(bytes.get(at+3..at+5)?.try_into().ok()?) as u32;
-            let width=u16::from_be_bytes(bytes.get(at+5..at+7)?.try_into().ok()?) as u32;
-            frame=Some(("image/jpeg",width,height));
-        }
-        at+=size;
-        if marker==0xda{
-            if frame.is_none(){return None;}scan=true;
-            // Walk entropy-coded data, allowing stuffed bytes and restart markers.
-            loop{
-                let byte=*bytes.get(at)?;at+=1;if byte!=0xff{continue;}
-                while bytes.get(at)==Some(&0xff){at+=1;}
-                let next=*bytes.get(at)?;
-                if next==0 || (0xd0..=0xd7).contains(&next){at+=1;continue;}
-                at-=1;break;
-            }
-        }
-    }None
+    let mut decoder=jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.read_info().ok()?;let info=decoder.info()?;
+    Some(("image/jpeg",u32::from(info.width),u32::from(info.height)))
 }
 
 fn checked(bytes:&[u8])->Result<String,String>{
@@ -45,13 +21,20 @@ fn checked(bytes:&[u8])->Result<String,String>{
     let (mime,w,h)=dimensions(bytes).ok_or("Choose a complete PNG or JPEG cover")?;
     if !(300..=4096).contains(&w)||!(150..=4096).contains(&h)||u64::from(w)*u64::from(h)>16_000_000{return Err("Cover must be at least 300 × 150, at most 4096 per side, and under 16 megapixels".into());}
     if mime=="image/png" { ico::IconImage::read_png(std::io::Cursor::new(bytes)).map_err(|_|"The PNG cover could not be decoded")?; }
+    else {
+        let mut decoder=jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+        decoder.set_max_decoding_buffer_size(16_000_000*4);
+        decoder.decode().map_err(|_|"The JPEG cover could not be decoded")?;
+    }
     Ok(game_icons::data_uri(bytes,mime))
 }
-fn read(path:&Path)->Result<Vec<u8>,String>{
+fn read_bytes(path:&Path)->Result<Vec<u8>,String>{
     let mut f=File::options().read(true).custom_flags(libc::O_NOFOLLOW|libc::O_NONBLOCK).open(path).map_err(|e|e.to_string())?;
     let m=f.metadata().map_err(|e|e.to_string())?;if !m.is_file()||m.len()>MAX_BYTES as u64{return Err("Choose a regular cover file smaller than 8 MiB".into());}
-    let mut bytes=Vec::new();Read::by_ref(&mut f).take(MAX_BYTES as u64+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;checked(&bytes)?;Ok(bytes)
+    let mut bytes=Vec::new();Read::by_ref(&mut f).take(MAX_BYTES as u64+1).read_to_end(&mut bytes).map_err(|e|e.to_string())?;
+    if bytes.len()>MAX_BYTES{return Err("Choose a cover smaller than 8 MiB".into());}Ok(bytes)
 }
+fn read(path:&Path)->Result<Vec<u8>,String>{let bytes=read_bytes(path)?;checked(&bytes)?;Ok(bytes)}
 fn directory(path:&Path)->Result<(),String>{
     let mut b=fs::DirBuilder::new();b.mode(0o700);match b.create(path){Ok(())=>{},Err(e) if e.kind()==std::io::ErrorKind::AlreadyExists=>{},Err(e)=>return Err(e.to_string())}
     if !fs::symlink_metadata(path).map_err(|e|e.to_string())?.is_dir(){return Err("Cover storage must be a directory, not a symbolic link".into());}Ok(())
@@ -75,7 +58,7 @@ fn save(dir:&Path,key:&str,bytes:&[u8],custom:bool)->Result<(),String>{
     if let Ok(meta)=fs::symlink_metadata(&target){
         if !meta.is_file(){return Err("Existing cover is not a regular file".into());}
         if custom {
-            let old=read(&target)?;let backup=dir.join(format!("{key}-{}.backup",stamp()));
+            let old=read_bytes(&target)?;let backup=dir.join(format!("{key}-{}.backup",stamp()));
             let mut file=OpenOptions::new().write(true).create_new(true).mode(0o600).open(backup).map_err(|e|e.to_string())?;
             file.write_all(&old).and_then(|_|file.sync_all()).map_err(|e|e.to_string())?;
         }
@@ -133,6 +116,34 @@ pub async fn get(source:String,id:String,library_path:Option<String>)->Result<Op
         let header=[0xff,0xd8,0xff,0xc0,0,8,8,0,200,1,144,0,0xff,0xd9];
         assert!(checked(&header).is_err());
         let mut truncated=header.to_vec();truncated.truncate(9);assert!(checked(&truncated).is_err());
+    }
+    #[test]fn decodes_baseline_and_progressive_jpeg_covers(){
+        use base64::Engine;
+        // Uniform 300 x 150 grayscale fixtures encoded as baseline and progressive JPEG.
+        for encoded in ["/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCACWASwBAREA/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAA/AIYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//9k=","/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wgALCACWASwBAREA/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/2gAIAQEAAAABhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/EABQQAQAAAAAAAAAAAAAAAAAAAJD/2gAIAQEAAQUCNL//xAAUEAEAAAAAAAAAAAAAAAAAAACQ/9oACAEBAAY/AjS//8QAFBABAAAAAAAAAAAAAAAAAAAAkP/aAAgBAQABPyE0v//aAAgBAQAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//8QAFBABAAAAAAAAAAAAAAAAAAAAkP/aAAgBAQABPxA0v//Z"] {
+            let bytes=base64::engine::general_purpose::STANDARD.decode(encoded).unwrap();
+            assert!(checked(&bytes).unwrap().starts_with("data:image/jpeg;base64,"));
+            assert!(checked(&bytes[..bytes.len()-2]).is_err());
+            let mut missing_table=bytes.clone();
+            let table=missing_table.windows(2).position(|pair|pair==[0xff,0xdb]).unwrap();missing_table[table+1]=0xfe;
+            assert!(checked(&missing_table).is_err());
+        }
+    }
+    #[test]fn rejects_jpeg_markers_without_decodable_pixels(){
+        let bytes=[0xff,0xd8,0xff,0xc0,0,8,8,0,200,1,144,0,0xff,0xda,0,2,0xff,0xd9];
+        assert!(checked(&bytes).is_err());
+    }
+    #[test]fn replacing_corrupt_cover_preserves_its_original_bytes(){
+        let f=Fixture::new();let target=f.0.join("safe-custom.image");let good=png(400,200);let corrupt=&good[..good.len()-12];
+        fs::write(&target,corrupt).unwrap();assert!(read(&target).is_err());
+        save(&f.0,"safe",&good,true).unwrap();assert_eq!(read(&target).unwrap(),good);
+        let backups:Vec<_>=fs::read_dir(&f.0).unwrap().filter_map(Result::ok).filter(|p|p.path().extension().is_some_and(|x|x=="backup")).collect();
+        assert_eq!(backups.len(),1);assert_eq!(fs::read(backups[0].path()).unwrap(),corrupt);
+    }
+    #[test]fn oversized_existing_cover_is_not_replaced_or_backed_up(){
+        let f=Fixture::new();let target=f.0.join("safe-custom.image");let oversized=File::create(&target).unwrap();oversized.set_len(MAX_BYTES as u64+1).unwrap();
+        assert!(save(&f.0,"safe",&png(400,200),true).is_err());assert_eq!(fs::metadata(&target).unwrap().len(),MAX_BYTES as u64+1);
+        assert!(!fs::read_dir(&f.0).unwrap().filter_map(Result::ok).any(|p|p.path().extension().is_some_and(|x|x=="backup")));
     }
     #[test]fn uses_header_artwork_without_selecting_icons(){let f=Fixture::new();let dir=f.0.join("appcache/librarycache");fs::create_dir_all(&dir).unwrap();fs::write(dir.join("123_icon.png"),png(400,200)).unwrap();assert!(cached(&[f.0.clone()],"123").is_none());fs::write(dir.join("123_header.jpg"),png(400,200)).unwrap();assert!(cached(&[f.0.clone()],"123").is_some());}
     #[test]fn copies_covers_and_backs_up_previous_selection(){let f=Fixture::new();let first=png(400,200);let second=png(500,250);save(&f.0,"safe",&first,true).unwrap();save(&f.0,"safe",&second,true).unwrap();assert_eq!(read(&f.0.join("safe-custom.image")).unwrap(),second);let backups:Vec<_>=fs::read_dir(&f.0).unwrap().filter_map(Result::ok).filter(|p|p.path().extension().is_some_and(|x|x=="backup")).collect();assert_eq!(backups.len(),1);assert_eq!(fs::read(backups[0].path()).unwrap(),first);}
