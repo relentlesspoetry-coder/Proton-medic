@@ -65,6 +65,15 @@ pub(crate) fn installed_versions(tools: &[CompatibilityTool]) -> Vec<&Compatibil
     versions
 }
 fn resolve_configured(configured: &str, tools: &[&CompatibilityTool]) -> String {
+    // Steam stores manifest IDs, which can differ from directory/display names.
+    // Resolve these before name heuristics so an installed custom runtime is
+    // not offered as an alternative to itself. internal_id uses bounded VDF IO.
+    if let Some(tool) = tools.iter().find(|t| {
+        crate::auto_select::internal_id(&t.name, std::path::Path::new(&t.path))
+            .is_ok_and(|id| id == configured)
+    }) {
+        return tool.name.clone();
+    }
     let normalized = configured.to_ascii_lowercase().replace('-', "_");
     if let Some(tool) = tools.iter().find(|t| t.name.eq_ignore_ascii_case(configured)) {
         return tool.name.clone();
@@ -223,6 +232,27 @@ mod tests {
         let result = advise(&game, Some(&diagnostics), &installed_versions(&data));
         assert_eq!(result.status, "try-version");
         assert_eq!(result.suggested_tool.as_deref(), Some("Proton Experimental"));
+    }
+    #[test] fn custom_manifest_id_does_not_recommend_current_runtime_again() {
+        let dir=std::env::temp_dir().join(format!("pm-advisor-id-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let path=dir.join("GE-Proton11-4");
+        std::fs::create_dir_all(&path).unwrap();
+        std::fs::write(path.join("compatibilitytool.vdf"),r#""compatibilitytools" { "compat_tools" { "GE-Proton11-4-x86_64" { "install_path" "." } } }"#).unwrap();
+        let mut game=game();
+        game.configured_tool=Some("GE-Proton11-4-x86_64".into());
+        let mut tools=vec![CompatibilityTool{name:"GE-Proton11-4".into(),path:path.to_string_lossy().into_owned(),source:"Custom Proton".into()}];
+        let diagnosis=diag("wine-exception");
+        let result=advise(&game,Some(&diagnosis),&installed_versions(&tools));
+        assert_eq!(result.configured_tool.as_deref(),Some("GE-Proton11-4"));
+        assert_eq!(result.status,"need-information");
+        assert!(result.suggested_tool.is_none());
+        // A genuinely different installed candidate remains available.
+        std::fs::create_dir(dir.join("Proton - Experimental")).unwrap();
+        tools.push(CompatibilityTool{name:"Proton - Experimental".into(),path:dir.join("Proton - Experimental").to_string_lossy().into_owned(),source:"Steam library".into()});
+        let result=advise(&game,Some(&diagnosis),&installed_versions(&tools));
+        assert_eq!(result.status,"try-version");
+        assert_eq!(result.suggested_tool.as_deref(),Some("Proton - Experimental"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test] fn does_not_propose_version_for_vulkan_driver_failure() {
         let data = tools(); let diagnostics = diag("vulkan-init");

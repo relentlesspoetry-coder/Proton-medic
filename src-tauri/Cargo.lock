@@ -2494,7 +2494,7 @@ dependencies = [
 
 [[package]]
 name = "proton-medic"
-version = "0.6.32"
+version = "0.6.33"
 dependencies = [
  "base64 0.22.1",
  "flate2",

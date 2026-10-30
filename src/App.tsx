@@ -70,6 +70,7 @@ export default function App() {
   const [autoMessage, setAutoMessage] = useState<string | null>(null);
   const [autoBusy, setAutoBusy] = useState(false);
   const [query, setQuery] = useState('');
+  const [libraryPage, setLibraryPage] = useState(0);
   const [filter, setFilter] = useState<LibraryFilter>('all');
   const [librarySource,setLibrarySource]=useState<LibrarySource>('all');
   const [librarySort,setLibrarySort]=useState<LibrarySort>('name');
@@ -173,8 +174,8 @@ export default function App() {
   const selectedGame = scan?.games.find(g => gameKey(g) === selectedKey) ?? null;
   const selectedDiagnosis = selectedGame ? issueByGame.get(gameKey(selectedGame)) ?? null : null;
   const openGame = (game: Game) => { setSelectedWindowsId(undefined); setSelectedKey(gameKey(game)); setPage('games'); };
-  const showProblems = () => { setSelectedWindowsId(undefined); setLibrarySource('all'); setSelectedKey(null); setQuery(''); setFilter('issues'); setPage('games'); };
-  const showAllGames = () => { setSelectedWindowsId(undefined); setLibrarySource('all'); setSelectedKey(null); setQuery(''); setFilter('all'); setPage('games'); };
+  const showProblems = () => { setLibraryPage(0); setSelectedWindowsId(undefined); setLibrarySource('all'); setSelectedKey(null); setQuery(''); setFilter('issues'); setPage('games'); };
+  const showAllGames = () => { setLibraryPage(0); setSelectedWindowsId(undefined); setLibrarySource('all'); setSelectedKey(null); setQuery(''); setFilter('all'); setPage('games'); };
   const status = !scan ? 'Not scanned' : scan.installations.length ? 'Steam detected' : 'Steam not found';
 
   return <div className="pm-app">
@@ -242,7 +243,8 @@ export default function App() {
             </> },
           ]}/>
         </div> : <UnifiedLibrary steam={scan?.games??[]} steamLoading={loading} scanAvailable={!!scan} refreshKey={lastScan?.getTime()??0} problemKeys={problemKeys}
-          query={query} onQuery={setQuery} filter={filter} onFilter={setFilter} source={librarySource} onSource={setLibrarySource} sort={librarySort} onSort={setLibrarySort}
+          page={libraryPage} onPageChange={setLibraryPage}
+          query={query} onQuery={value => { setQuery(value); setLibraryPage(0); }} filter={filter} onFilter={value => { setFilter(value); setLibraryPage(0); }} source={librarySource} onSource={value => { setLibrarySource(value); setLibraryPage(0); }} sort={librarySort} onSort={value => { setLibrarySort(value); setLibraryPage(0); }}
           onAddGame={() => setPage('windows')} onScan={() => void scanGames()} scanning={loading}
           onSteam={openGame} onWindows={game=>{setSelectedKey(null);setSelectedWindowsId(game.id);}} steamStatus={game=><StatusTag {...getIssue(game,issueByGame.get(gameKey(game)))}/>}/>}
 

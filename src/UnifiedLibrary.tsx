@@ -34,6 +34,7 @@ interface Props {
  steam:SteamGame[];steamLoading:boolean;scanAvailable:boolean;refreshKey:number;problemKeys:Set<string>;
  query:string;onQuery:(value:string)=>void;filter:LibraryFilter;onFilter:(value:LibraryFilter)=>void;
  source:LibrarySource;onSource:(value:LibrarySource)=>void;sort:LibrarySort;onSort:(value:LibrarySort)=>void;
+ page?:number;onPageChange?:(page:number)=>void;
  onAddGame?:()=>void;onScan?:()=>void;scanning?:boolean;
  onSteam:(game:SteamGame)=>void;onWindows:(game:WindowsGame)=>void;steamStatus:(game:SteamGame)=>ReactNode;
 }
@@ -89,6 +90,9 @@ export function UnifiedLibrary(props:Props){
   if(props.filter==='prefix')return item.kind==='steam'&&item.game.prefixExists;
   return true;
  }).sort((a,b)=>(props.sort==='recent'?b.recent-a.recent:0)||a.name.localeCompare(b.name)||a.key.localeCompare(b.key)),[items,props.source,props.query,props.filter,props.sort,props.problemKeys,favorites]);
+ useEffect(()=>{
+  if((loaded||props.source==='steam')&&visible.length===0&&props.page)props.onPageChange?.(0);
+ },[loaded,props.source,visible.length,props.page,props.onPageChange]);
  const recent=useMemo(()=>visible.filter(item=>item.recent>0).sort((a,b)=>b.recent-a.recent||a.key.localeCompare(b.key)).slice(0,3),[visible]);
  const openItem=(item:Item)=>item.kind==='steam'?props.onSteam(item.game):props.onWindows(item.game);
  const sourceName=(item:Item)=>item.kind==='steam'?'Steam':'Windows';
@@ -127,7 +131,7 @@ export function UnifiedLibrary(props:Props){
   <section className="pm-library-grid-section" aria-label="Unified game library">
    {!loaded&&!error&&props.source!=='steam'&&<p role="status">Loading Windows games…</p>}
    {props.steamLoading&&!props.scanAvailable&&props.source!=='windows'&&<p role="status">Loading Steam games…</p>}
-   {visible.length?<PagedList className="pm-library-grid" key={`${props.query}:${props.filter}:${props.source}:${props.sort}`} items={visible} render={item=>{
+   {visible.length?<PagedList page={props.page} onPageChange={props.onPageChange} clampPage={loaded||props.source==='steam'} className="pm-library-grid" key={`${props.query}:${props.filter}:${props.source}:${props.sort}`} items={visible} render={item=>{
     const source=sourceName(item);const favorite=favorites.has(item.key);
     return <article className="pm-library-card" key={item.key}>
      <GameCover name={item.name} source={{source:item.kind,id:item.kind==='steam'?item.game.appId:item.game.id,libraryPath:item.kind==='steam'?item.game.libraryPath:null}} onOpen={()=>openItem(item)}/>

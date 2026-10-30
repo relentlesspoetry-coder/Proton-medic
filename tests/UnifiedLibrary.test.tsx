@@ -8,9 +8,10 @@ const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));vi.mock('@tauri-apps/api/core'
 const steam:Game={appId:'100',name:'Shared name',libraryPath:'/Steam/A',installPath:'/Steam/A/game',installPathExists:true,manifestPath:'/manifest',prefixPath:'/prefix',prefixExists:true,buildId:null,lastPlayedAt:1700000000000};
 const windows:WindowsGame={id:'123',name:'Shared name',runtimeId:'wine',gameExe:'/game.exe',state:'game-exited',exitCode:0,message:'Ended',directory:'/managed/123',windowsDrive:'/prefix/drive_c',prefixDirectory:'/prefix',logDirectory:'/logs/1',lastLaunchedAt:1700000060000};
 const onSteam=vi.fn(),onWindows=vi.fn();let windowsData={games:[windows],removedGames:[{...windows,id:'999',name:'Hidden game'}],warnings:[],runtimes:[]};
-function Harness({games=[steam],refreshKey=0}:{games?:Game[];refreshKey?:number}){
+function Harness({games=[steam],refreshKey=0,initialPage=0}:{games?:Game[];refreshKey?:number;initialPage?:number}){
+ const [page,onPageChange]=useState(initialPage);
  const [query,onQuery]=useState('');const [filter,onFilter]=useState<LibraryFilter>('all');const [source,onSource]=useState<LibrarySource>('all');const [sort,onSort]=useState<LibrarySort>('name');
- return <UnifiedLibrary steam={games} steamLoading={false} scanAvailable refreshKey={refreshKey} problemKeys={new Set(['/Steam/A:100'])} query={query} onQuery={onQuery} filter={filter} onFilter={onFilter} source={source} onSource={onSource} sort={sort} onSort={onSort} onSteam={onSteam} onWindows={onWindows} steamStatus={()=>'Not checked'}/>;
+ return <UnifiedLibrary page={page} onPageChange={onPageChange} steam={games} steamLoading={false} scanAvailable refreshKey={refreshKey} problemKeys={new Set(['/Steam/A:100'])} query={query} onQuery={onQuery} filter={filter} onFilter={onFilter} source={source} onSource={onSource} sort={sort} onSort={onSort} onSteam={onSteam} onWindows={onWindows} steamStatus={()=>'Not checked'}/>;
 }
 const choose=async(name:string,value:string)=>{await act(async()=>{if(name==='Game source')fireEvent.click(within(screen.getByRole('group',{name})).getByRole('button',{name:value==='all'?'All':value==='steam'?'Steam':'Windows',exact:true}));else fireEvent.change(screen.getByRole('combobox',{name}),{target:{value}});});};
 const mount=async()=>{render(<Harness/>);await act(async()=>{});};
@@ -134,4 +135,14 @@ it('keeps the Steam launch panel mounted while an observation is pending',async(
  await act(async()=>finish({status:'no-log',detail:'Observation complete',freshLog:false,observedSeconds:10,findingCodes:[]}));
  expect(screen.getByText('Observation complete')).toBeTruthy();
  expect((screen.getByRole('button',{name:'Close launch options'}) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('keeps a restored page until the Windows inventory has finished loading',async()=>{
+ let finish!:(value:unknown)=>void;
+ invoke.mockImplementation(command=>command==='list_windows_games'?new Promise(resolve=>{finish=resolve;}):Promise.resolve(null));
+ render(<Harness initialPage={2}/>);
+ await act(async()=>{});
+ await act(async()=>finish({games:Array.from({length:94},(_,i)=>({...windows,id:String(i),name:`Windows ${String(i).padStart(3,'0')}`})),runtimes:[],warnings:[]}));
+ expect(screen.getByText('Page 3 of 3')).toBeTruthy();
+ expect(within(screen.getByRole('region',{name:'Unified game library'})).getAllByRole('button',{name:/^Open /})).toHaveLength(15);
 });
