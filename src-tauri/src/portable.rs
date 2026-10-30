@@ -25,6 +25,18 @@ fn clean_value(value: &OsStr, appdir: &Path) -> Option<OsString> {
     if paths.is_empty() { None } else { std::env::join_paths(paths).ok() }
 }
 
+fn clean_preload(value: &OsStr, appdir: &Path) -> Option<OsString> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    let mut cleaned = Vec::new();
+    // The dynamic loader accepts spaces and colons, without quoting or escaping.
+    for entry in value.as_bytes().split(|byte| *byte == b' ' || *byte == b':') {
+        if entry.is_empty() || Path::new(OsStr::from_bytes(entry)).starts_with(appdir) { continue; }
+        if !cleaned.is_empty() { cleaned.push(b':'); }
+        cleaned.extend_from_slice(entry);
+    }
+    if cleaned.is_empty() { None } else { Some(OsString::from_vec(cleaned)) }
+}
+
 pub fn host_environment(command: &mut Command) {
     let Some(appdir) = std::env::var_os("APPDIR").map(PathBuf::from).filter(|p| p.is_absolute()) else { return; };
     for key in ["PATH", "LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONHOME", "PYTHONPATH",
@@ -38,7 +50,8 @@ pub fn host_environment(command: &mut Command) {
             None => std::env::var_os(key),
         };
         if let Some(value) = value {
-            match clean_value(&value, &appdir) {
+            let cleaned = if key == "LD_PRELOAD" { clean_preload(&value, &appdir) } else { clean_value(&value, &appdir) };
+            match cleaned {
                 Some(value) => { command.env(key, value); }
                 None => { command.env_remove(key); }
             }
@@ -50,6 +63,28 @@ pub fn host_environment(command: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preload_filters_spaces_and_colons_without_reordering_host_libraries() {
+        let dir = Path::new("/tmp/.mount_pm");
+        let value = OsStr::new(" /host/first.so /tmp/.mount_pm/lib/private.so:/host/second.so::/tmp/.mount_pm-other/lib.so ");
+        assert_eq!(clean_preload(value, dir), Some(OsString::from("/host/first.so:/host/second.so:/tmp/.mount_pm-other/lib.so")));
+        assert_eq!(clean_preload(OsStr::new("/tmp/.mount_pm/private.so /host/first.so"), dir), Some(OsString::from("/host/first.so")));
+        assert_eq!(clean_preload(OsStr::new(" :/tmp/.mount_pm/private.so:: "), dir), None);
+        assert_eq!(clean_preload(OsStr::new(" : "), dir), None);
+    }
+    #[test]
+    fn preload_preserves_non_utf8_bytes_and_nonseparator_whitespace() {
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let dir = Path::new("/tmp/.mount_pm");
+        let value = OsStr::from_bytes(b"/host/\xff.so /tmp/.mount_pm/private.so:/host/tab\tname.so");
+        assert_eq!(clean_preload(value, dir), Some(OsString::from_vec(b"/host/\xff.so:/host/tab\tname.so".to_vec())));
+    }
+    #[test]
+    fn ordinary_path_values_keep_spaces_inside_entries() {
+        let dir = Path::new("/tmp/.mount_pm");
+        assert_eq!(clean_value(OsStr::new("/home/deck/My Tools:/tmp/.mount_pm/bin:/usr/bin"), dir),
+            Some(OsString::from("/home/deck/My Tools:/usr/bin")));
+    }
     #[test]
     fn host_paths_survive_without_bundle_paths_or_similar_prefixes() {
         let dir = Path::new("/tmp/.mount_pm");

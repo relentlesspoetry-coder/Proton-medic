@@ -8,6 +8,7 @@
   window.addEventListener('error', function (e) {
     var message = e.message || ('Resource failed: ' + (e.target && (e.target.src || e.target.href) || 'unknown'));
     report(message);
+    if (!e.message && e.target && e.target.tagName === 'IMG') return;
     var banner = document.getElementById('startup-status');
     if (banner) { banner.hidden = false; banner.textContent = 'Proton Medic could not start: ' + message; }
   }, true);
