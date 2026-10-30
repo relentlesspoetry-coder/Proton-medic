@@ -72,11 +72,21 @@ fn view(dir:&Path,r:Record,active:bool)->Game{
         message:if recovered{"Previous run was interrupted by a system restart. You can select or launch the game again.".into()}else if orphan{"Previous process status is unknown. Restart Linux before reusing this profile. No game data will be deleted.".into()}else{r.message},directory:dir.to_string_lossy().into(),windows_drive:prefix.join("drive_c").to_string_lossy().into(),prefix_directory:prefix.to_string_lossy().into(),
         launch_arguments:r.launch_arguments,working_directory:r.working_directory,log_directory:r.run_id.filter(|id|valid_id(id)).map(|id|dir.join("logs").join(id).to_string_lossy().into())}
 }
-fn executable(path:&Path)->Option<PathBuf>{let p=fs::canonicalize(path).ok()?;let m=fs::metadata(&p).ok()?;if m.is_file() && m.permissions().mode()&0o111!=0{Some(p)}else{None}}
+pub(crate) fn executable_access(path:&Path)->bool {
+    use std::os::unix::ffi::OsStrExt;
+    if !path.is_file(){return false;}
+    let Ok(path)=std::ffi::CString::new(path.as_os_str().as_bytes()) else{return false};
+    // Match the effective user and ACLs used by process creation, including symlinks.
+    unsafe{libc::faccessat(libc::AT_FDCWD,path.as_ptr(),libc::X_OK,libc::AT_EACCESS)==0}
+}
+fn executable(path:&Path)->Option<PathBuf>{let p=fs::canonicalize(path).ok()?;executable_access(&p).then_some(p)}
+fn executable_in(name:&str,path:&std::ffi::OsStr)->Option<PathBuf>{
+    std::env::split_paths(path).filter(|p|p.is_absolute()).find_map(|dir|executable(&dir.join(name)))
+}
 pub fn runtimes()->Vec<Runtime>{ discover_runtimes(&scanner::scan()) }
 fn discover_runtimes(scan:&scanner::ScanReport)->Vec<Runtime>{
     let mut out=vec![];let mut seen=HashSet::new();
-    if let Some(path)=std::env::var_os("PATH") {for name in ["wine","wine64"] {if let Some(p)=std::env::split_paths(&path).filter(|p|p.is_absolute()).find_map(|dir|executable(&dir.join(name))){if seen.insert(p.clone()){out.push(Runtime{proton:None,id:format!("wine:{}",p.display()),name:format!("System {name}"),kind:"wine".into(),binary:p,steam:None});}}}}
+    if let Some(path)=std::env::var_os("PATH") {for name in ["wine","wine64"] {if let Some(p)=executable_in(name,&path){if seen.insert(p.clone()){out.push(Runtime{proton:None,id:format!("wine:{}",p.display()),name:format!("System {name}"),kind:"wine".into(),binary:p,steam:None});}}}}
     if let Some(p)=executable(Path::new("/usr/lib/wine/wine64")){if seen.insert(p.clone()){out.push(Runtime{proton:None,id:format!("wine:{}",p.display()),name:"System Wine64".into(),kind:"wine".into(),binary:p,steam:None});}}
     for tool in &scan.compatibility_tools {
         let path=Path::new(&tool.path);
@@ -531,6 +541,31 @@ mod tests{
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
     fn pe(path:&Path){let mut bytes=vec![0u8;256];bytes[..2].copy_from_slice(b"MZ");bytes[60..64].copy_from_slice(&128u32.to_le_bytes());bytes[128..132].copy_from_slice(b"PE\0\0");bytes[132..134].copy_from_slice(&0x8664u16.to_le_bytes());fs::write(path,bytes).unwrap();}
     fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None}}
+    #[test] fn runtime_discovery_skips_nonexecutable_path_entries_and_preserves_order(){
+        let f=Fixture::new();let a=f.0.join("first");let b=f.0.join("second");fs::create_dir(&a).unwrap();fs::create_dir(&b).unwrap();
+        for dir in [&a,&b]{fs::write(dir.join("wine"),"#!/bin/sh\nexit 0\n").unwrap();}
+        fs::set_permissions(a.join("wine"),fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(b.join("wine"),fs::Permissions::from_mode(0o755)).unwrap();
+        let path=std::env::join_paths([&a,&b]).unwrap();
+        assert_eq!(executable_in("wine",&path),Some(b.join("wine")));
+        fs::set_permissions(a.join("wine"),fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(executable_in("wine",&path),Some(a.join("wine")));
+    }
+    #[test] fn runtime_discovery_checks_current_user_instead_of_other_execute_bits(){
+        let f=Fixture::new();let binary=f.0.join("wine");fs::write(&binary,"#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&binary,fs::Permissions::from_mode(0o641)).unwrap();
+        // Privileged root may execute via DAC override; ordinary owners cannot.
+        let can_start=Command::new(&binary).status().is_ok();
+        assert_eq!(executable(&binary).is_some(),can_start);
+        if unsafe{libc::geteuid()}!=0{assert!(!can_start);}
+    }
+    #[test] fn runtime_discovery_keeps_executable_symlinks_and_rejects_nonfiles(){
+        let f=Fixture::new();let binary=f.0.join("wine");fs::write(&binary,"#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&binary,fs::Permissions::from_mode(0o755)).unwrap();
+        let alias=f.0.join("wine64");std::os::unix::fs::symlink(&binary,&alias).unwrap();
+        assert_eq!(executable(&alias),Some(binary));assert!(executable(&f.0).is_none());
+        assert!(executable(&f.0.join("missing")).is_none());
+    }
     #[test] fn supervisor_completion_retries_and_preserves_newer_run_identity(){
         let f=Fixture::new();let id="123-456";let dir=f.0.join(id);directory(&dir,true).unwrap();
         let logs=dir.join("logs/111-222");fs::create_dir_all(&logs).unwrap();
