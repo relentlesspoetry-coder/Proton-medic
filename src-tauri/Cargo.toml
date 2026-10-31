@@ -1,6 +1,6 @@
 [package]
 name = "proton-medic"
-version = "0.6.38"
+version = "0.6.39"
 description = "Linux Steam diagnostics with game launch observation and safe repair with rollback"
 authors = ["Proton Medic Contributors"]
 edition = "2021"

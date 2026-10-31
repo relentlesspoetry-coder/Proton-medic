@@ -59,8 +59,10 @@ fn capture(mut input: impl Read + AsRawFd, output: File, stop: Arc<AtomicBool>) 
 }
 #[derive(Clone)]
 pub(crate) struct Process { pub(crate) pid: u32, pub(crate) parent: u32, pub(crate) group: u32, pub(crate) start: u64, pub(crate) state: char, pub(crate) metrics: Option<(u64,u64)> }
-fn parse_process(pid: u32, stat: &str) -> Option<Process> {
-    // comm may contain spaces and parentheses. Fields after its final ')' are fixed.
+fn parse_process(pid: u32, stat: &[u8]) -> Option<Process> {
+    // Linux comm is arbitrary bytes and can truncate a UTF-8 character.
+    // Its contents are unused; fields after its final ')' are fixed.
+    let stat = String::from_utf8_lossy(stat);
     let fields: Vec<_> = stat.rsplit_once(')')?.1.split_whitespace().collect();
     Some(Process { pid, state: fields.first()?.chars().next()?, parent: fields.get(1)?.parse().ok()?,
         group: fields.get(2)?.parse().ok()?, start: fields.get(19)?.parse().ok()?,
@@ -71,7 +73,7 @@ fn processes() -> io::Result<Vec<Process>> {
     let mut result = vec![];
     for item in fs::read_dir("/proc")?.flatten() {
         let Some(pid) = item.file_name().to_str().and_then(|s| s.parse().ok()) else { continue };
-        match fs::read_to_string(item.path().join("stat")) {
+        match fs::read(item.path().join("stat")) {
             Ok(stat) => { if let Some(p) = parse_process(pid, &stat) { result.push(p); } },
             Err(e) if e.kind() == io::ErrorKind::NotFound => {},
             Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {},
@@ -156,8 +158,25 @@ pub fn supervise_monitored(mut child: Child, out: ChildStdout, err: ChildStderr,
     }
     #[test] fn proc_stat_parsing_uses_own_cpu_ticks_and_resident_pages() {
         let mut fields=vec!["0";22];fields[0]="S";fields[1]="1";fields[2]="50";fields[11]="120";fields[12]="30";fields[13]="9000";fields[14]="8000";fields[19]="12345";fields[21]="256";
-        let process=parse_process(50,&format!("50 (game (worker)) {}",fields.join(" "))).unwrap();
+        let process=parse_process(50,format!("50 (game (worker)) {}",fields.join(" ")).as_bytes()).unwrap();
         assert_eq!(process.start,12345);assert_eq!(process.metrics,Some((150,256)));
+    }
+    #[test] fn proc_stat_accepts_non_utf8_names_without_losing_identity_or_metrics() {
+        let mut stat=b"50 (game \xff (worker)) ".to_vec();
+        stat.extend_from_slice(b"S 1 50 0 0 0 0 0 0 0 0 120 30 0 0 0 0 0 0 12345 0 256");
+        assert!(std::str::from_utf8(&stat).is_err());
+        let process=parse_process(50,&stat).unwrap();
+        assert_eq!((process.pid,process.parent,process.group,process.start,process.state),(50,1,50,12345,'S'));
+        assert_eq!(process.metrics,Some((150,256)));
+    }
+    #[test] fn proc_stat_accepts_kernel_truncated_utf8_names() {
+        let name="aaaaaaaaaaaaaaé".as_bytes();
+        let mut stat=b"51 (".to_vec();stat.extend_from_slice(&name[..15]);
+        stat.extend_from_slice(b") S 1 51 0 0 0 0 0 0 0 0 20 5 0 0 0 0 0 0 67890 0 64");
+        assert!(std::str::from_utf8(&stat).is_err());
+        let process=parse_process(51,&stat).unwrap();
+        assert_eq!(process.start,67890);assert_eq!(process.metrics,Some((25,64)));
+        assert!(parse_process(51,b"51 (bad \xff) S 1 51").is_none());
     }
     #[test] fn ring_retains_chronological_tail_across_multiple_wraps() {
         let mut tail = Tail::new(tempfile("ring"));
