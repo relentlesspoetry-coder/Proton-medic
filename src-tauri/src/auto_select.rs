@@ -26,7 +26,9 @@ pub struct AutoSelection {
 pub(crate) struct Token { pub value: String, pub start: usize, pub end: usize, pub quoted: bool }
 
 pub(crate) fn tokens(s: &str) -> Result<Vec<Token>, String> {
-    let bytes=s.as_bytes(); let mut i=0; let mut output=Vec::new();
+    let bytes=s.as_bytes();
+    // Match scanner BOM handling without shifting offsets used to edit the original text.
+    let mut i=s.len()-s.trim_start_matches('\u{feff}').len(); let mut output=Vec::new();
     while i<bytes.len() {
         if bytes[i].is_ascii_whitespace() { i+=1; continue; }
         if bytes[i]==b'/' && i+1<bytes.len() && bytes[i+1]==b'/' {
@@ -386,6 +388,28 @@ pub(crate) fn select_tracked_with_control(app_id:String,library_path:String,conf
         "0" { "name" "proton_experimental" } // user default
         "123" { "name" "proton_9" "config" "" "priority" "250" }
     } } } } }"#;
+    #[test] fn bom_token_offsets_preserve_original_unicode_text() {
+        let original="\u{feff}\u{feff}// café\n\"Root\" { \"Name\" \"雪\" }";
+        let parsed=tokens(original).unwrap();
+        assert_eq!(parsed[0].value,"Root");assert!(parsed[0].quoted);
+        assert_eq!(&original[parsed[0].start..parsed[0].end],"\"Root\"");
+        let name=parsed.iter().find(|token|token.value=="雪").unwrap();
+        assert_eq!(&original[name.start..name.end],"\"雪\"");
+        let mut changed=original.to_string();changed.replace_range(name.start..name.end,"\"new\"");
+        assert_eq!(changed,"\u{feff}\u{feff}// café\n\"Root\" { \"Name\" \"new\" }");
+    }
+    #[test] fn inserts_mapping_into_bom_config_without_removing_prefix() {
+        let bare="\u{feff}\"InstallConfigStore\" { // retained\n \"Software\" { \"Valve\" { \"Steam\" {} } } }";
+        let (updated,changed)=replacement_text(bare,"123","proton_10").unwrap();
+        assert!(changed);assert!(updated.starts_with("\u{feff}\"InstallConfigStore\" { // retained\n"));
+        let parsed=scanner::parse_vdf(&updated).unwrap();
+        let store=scanner::obj_get(&parsed,"InstallConfigStore").unwrap();
+        let software=scanner::obj_get(store,"Software").unwrap();
+        let valve=scanner::obj_get(software,"Valve").unwrap();
+        let steam=scanner::obj_get(valve,"Steam").unwrap();
+        let mapping=scanner::obj_get(steam,"CompatToolMapping").unwrap();
+        assert_eq!(scanner::text_get(scanner::obj_get(mapping,"123").unwrap(),"name"),Some("proton_10"));
+    }
     #[test] fn manual_choices_follow_library_owner_and_resolve_links() {
         let dir = std::env::temp_dir().join(format!("pm-tool-choices-{}-{}", std::process::id(), unix_stamp().unwrap()));
         let native = dir.join("native"); let flatpak = dir.join("flatpak"); let external = dir.join("external");

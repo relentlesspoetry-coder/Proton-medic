@@ -26,6 +26,8 @@ import { GameIcon } from './GameIcon';
 import { LaunchTest } from './LaunchTest';
 import programLogo from './assets/proton-medic-logo.webp';
 
+type AppError = { source: 'diagnostics' | 'scan' | 'advisor' | 'vulkan'; message: string };
+
 type Page = 'protons' | 'windows' | 'home' | 'games' | 'fixes' | 'system' | 'settings';
 const MENU: { page: Page; label: string; icon: typeof Home }[] = [
   { page: 'home', label: 'Home', icon: Home },
@@ -63,7 +65,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [probing, setProbing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AppError | null>(null);
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const autoControl = useAutoFixControl();
@@ -84,9 +86,12 @@ export default function App() {
     setAnalyzing(true);
     try {
       const diagnostics = await invoke<DiagnosticsReport>('analyze_diagnostics');
-      if (current === analysisId.current) setReport(diagnostics);
+      if (current === analysisId.current) {
+        setReport(diagnostics);
+        setError(previous => previous?.source === 'diagnostics' ? null : previous);
+      }
     } catch (e) {
-      if (current === analysisId.current) setError(`Could not read diagnostic logs: ${String(e)}`);
+      if (current === analysisId.current) setError({ source: 'diagnostics', message: `Could not read diagnostic logs: ${String(e)}` });
     } finally {
       if (current === analysisId.current) setAnalyzing(false);
     }
@@ -115,7 +120,7 @@ export default function App() {
         })
         .catch(e => {
           if (current === taskId.current && recommendationTask === advisorId.current)
-            setError(`Could not recommend a Proton version: ${String(e)}`);
+            setError({ source: 'advisor', message: `Could not recommend a Proton version: ${String(e)}` });
         })
         .finally(() => {
           if (current === taskId.current && recommendationTask === advisorId.current) setAdvising(false);
@@ -125,16 +130,20 @@ export default function App() {
       setAnalyzing(true);
       try {
         const diagnostics = await invoke<DiagnosticsReport>('analyze_diagnostics');
-        if (current === taskId.current && analysisTask === analysisId.current) setReport(diagnostics);
+        if (current === taskId.current && analysisTask === analysisId.current) {
+          setReport(diagnostics);
+          setError(previous => previous?.source === 'diagnostics' ? null : previous);
+        }
       } catch (e) {
-        if (current === taskId.current) setError(`Games were found, but logs could not be analyzed: ${String(e)}`);
+        if (current === taskId.current && analysisTask === analysisId.current)
+          setError({ source: 'diagnostics', message: `Games were found, but logs could not be analyzed: ${String(e)}` });
       } finally {
-        if (current === taskId.current) setAnalyzing(false);
+        if (current === taskId.current && analysisTask === analysisId.current) setAnalyzing(false);
       }
     } catch (e) {
       if (current === taskId.current) {
         setAdvising(false);
-        setError(`Could not scan Steam libraries: ${String(e)}`);
+        setError({ source: 'scan', message: `Could not scan Steam libraries: ${String(e)}` });
       }
     } finally {
       if (current === taskId.current) setLoading(false);
@@ -163,7 +172,7 @@ export default function App() {
     setProbing(true);
     setError(null);
     try { setVulkan(await invoke<VulkanProbe>('probe_vulkan')); }
-    catch (e) { setError(`Vulkan check failed: ${String(e)}`); }
+    catch (e) { setError({ source: 'vulkan', message: `Vulkan check failed: ${String(e)}` }); }
     finally { setProbing(false); }
   }, []);
 
@@ -197,7 +206,7 @@ export default function App() {
     <main className="pm-main">
       <div className="pm-workspace-header">{page === 'games' && !selectedGame && !selectedWindowsId ? <h1>My Games</h1> : <span aria-hidden="true"/>}<AppUpdater/></div>
       <ActiveFixSessions/>
-      {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
+      {error && <div className="pm-error" role="alert"><AlertTriangle size={18}/><p>{error.message}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={17}/></button></div>}
       {page === 'home' && <>
         <div className="pm-welcome"><div><span className="pm-eyebrow">Your gaming workspace</span><h1>Ready for your<br/><span>next game.</span></h1><p>One place for your library, Proton, and game repairs.</p></div><button className="pm-button pm-button-primary pm-scan-action" onClick={() => void scanGames()} disabled={loading}>{loading ? <RefreshCw size={18} className="pm-spin"/> : <Search size={18}/>} {loading ? 'Scanning library…' : 'Scan your library'}</button></div>
         <div className="pm-metrics">
