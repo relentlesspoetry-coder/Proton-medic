@@ -4,7 +4,7 @@
 
 Proton Medic helps Linux players diagnose game problems, manage installed Proton versions, and apply repairs with backups and rollback.
 
-**Version:** v0.6.40 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
+**Version:** v0.6.41 · [Downloads](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest)
 
 ## Features
 
@@ -36,7 +36,7 @@ The update button appears at the top right on every page, with the installed ver
 
 ### Steam Deck / SteamOS
 
-1. Switch to **Desktop Mode** and download `proton-medic_0.6.40_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
+1. Switch to **Desktop Mode** and download `proton-medic_0.6.41_amd64.AppImage` from [Releases](https://github.com/relentlesspoetry-coder/Proton-medic/releases/latest).
 2. Move it to a permanent folder such as `~/Applications`. Game shortcuts refer to this location.
 3. In Dolphin, open **Properties → Permissions**, enable **Is executable**, then open the AppImage.
 
@@ -45,7 +45,7 @@ GTK, WebKitGTK, and application fonts travel with the AppImage. No DEB installat
 If the system reports that FUSE is missing, run it without FUSE from Konsole:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.40_amd64.AppImage"
+APPIMAGE_EXTRACT_AND_RUN=1 "$HOME/Applications/proton-medic_0.6.41_amd64.AppImage"
 ```
 
 The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35 or newer. Graphics drivers and the desktop session come from the operating system. Steam and an installed Proton or Wine runtime are required for their respective game-launching features; the application does not install or replace graphics drivers. GE-Proton downloads are available from Proton versions; Valve Proton and Proton Experimental remain managed by Steam.
@@ -55,7 +55,7 @@ The portable package is built on Ubuntu 22.04 for x86_64 systems with glibc 2.35
 Download the amd64 DEB and install it using a package manager so that dependencies are installed too:
 
 ```bash
-sudo apt install ./proton-medic_0.6.40_amd64.deb
+sudo apt install ./proton-medic_0.6.41_amd64.deb
 ```
 
 The DEB requires an Ubuntu 24.04-compatible x86_64 system with glibc 2.39 or newer, GTK 3, and WebKitGTK 4.1. Use the AppImage on SteamOS. Existing installations can check for signed updates in the app.
@@ -122,7 +122,7 @@ Games sharing a Windows prefix run one at a time through Proton Medic, including
 
 Scans and log analysis stay on your computer. Configuration changes preserve backups and require Steam to be closed. Concurrent configuration writes from Proton Medic instances are excluded. Automatic Proton selection uses versions available to the game’s Steam installation. Game launches and manual repairs require approval. Automatic fixes are optional and limited to supported log findings. If logging setup is waiting for Steam to close, open **Game log updates → Cancel queued log setup** to cancel without changing Steam settings.
 
-Steam cover requests contact Steam’s image servers when local artwork is unavailable. Custom cover images stay local. Update checks contact GitHub only when requested. Packages are signature-verified before installation. System package installation may request administrator approval. After installation, Proton Medic automatically reopens into the installed version. Finish active Windows games, installers, queued logging setup, and Fix & Test sessions before updating.
+Steam cover requests contact Steam’s image servers when local artwork is unavailable. Custom cover images stay local. Update checks contact GitHub only when requested. Packages are signature-verified before installation. System package installation may request administrator approval. After installation, Proton Medic automatically reopens into the installed version. When a Windows game or installer is active, the updater lists its name and asks whether to keep it running or stop it before updating. Stopping can lose unsaved progress or interrupt setup. The update waits for sessions to exit and completion records to be saved; it never force-kills a stuck process. Sessions launched by older versions must be closed manually. Finish downloads, queued logging setup, and Fix & Test sessions before updating.
 
 Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings help diagnose a game; the player confirms whether it runs correctly. Windows installers run with your user permissions, so use trusted files.
 
@@ -167,3 +167,5 @@ Proton Medic does not bypass anti-cheat or DRM. Launch status and log findings h
 - [v0.6.38 changes](RELEASE-v0.6.38.md)
 - [v0.6.39 changes](RELEASE-v0.6.39.md)
 - [v0.6.40 changes](RELEASE-v0.6.40.md)
+
+- [v0.6.41 changes](RELEASE-v0.6.41.md)

@@ -4,7 +4,11 @@ import { AppUpdater } from '../src/AppUpdater';
 const { check, invoke } = vi.hoisted(() => ({ check: vi.fn(), invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check }));
-beforeEach(() => { check.mockReset(); invoke.mockReset(); invoke.mockResolvedValue(undefined); });
+beforeEach(() => { check.mockReset(); invoke.mockReset(); invoke.mockResolvedValue([]); });
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+});
 afterEach(cleanup);
 function update() { return {version:'0.6.6',currentVersion:'0.6.5',body:'Release notes',close:vi.fn().mockResolvedValue(undefined),downloadAndInstall:vi.fn().mockResolvedValue(undefined)}; }
 async function findUpdate(value = update()) {
@@ -97,7 +101,7 @@ it('releases the update guard after installer failure and never restarts',async(
  expect(invoke.mock.calls.some(c=>c[0]==='restart_after_update')).toBe(false);
 });
 it('reports relaunch failure without offering another action button or reinstalling',async()=>{
- invoke.mockImplementation(async(command:string)=>{if(command==='restart_after_update')throw new Error('Spawn failed');});
+ invoke.mockImplementation(async(command:string)=>{if(command==='restart_after_update')throw new Error('Spawn failed');return [];});
  const value=await findUpdate();fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
  await screen.findByText(/The update installed, but Proton Medic could not open/);
  expect(value.downloadAndInstall).toHaveBeenCalledTimes(1);
@@ -110,4 +114,38 @@ it('waits for successful installation before requesting relaunch',async()=>{
  await waitFor(()=>expect(value.downloadAndInstall).toHaveBeenCalledTimes(1));
  expect(invoke.mock.calls.some(c=>c[0]==='restart_after_update')).toBe(false);
  finish();await waitFor(()=>expect(invoke).toHaveBeenCalledWith('restart_after_update',{version:'0.6.6'}));
+});
+
+const running = [{id:'1-2',runId:'1-3',name:'Wukong',kind:'game',canStop:true},{id:'4-5',runId:'4-6',name:'Setup',kind:'installer',canStop:true}];
+async function blockedUpdate() {
+ invoke.mockImplementation(async command => command === 'active_update_sessions' ? running : undefined);
+ const value=await findUpdate();fireEvent.click(screen.getByRole('checkbox'));
+ fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
+ await screen.findByRole('dialog');return value;
+}
+it('lists active sessions and cancellation never stops or downloads',async()=>{
+ const value=await blockedUpdate();expect(screen.getByText('Wukong')).toBeTruthy();expect(screen.getByText('Setup')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Keep running'}));
+ expect(screen.queryByRole('dialog')).toBeNull();expect(value.downloadAndInstall).not.toHaveBeenCalled();
+ expect(invoke.mock.calls.map(c=>c[0])).toEqual(['active_update_sessions']);
+});
+it('stops only the reviewed sessions and waits before acquiring the update gate',async()=>{
+ const value=await blockedUpdate();let finish!:()=>void;
+ invoke.mockImplementation(async command => {if(command==='stop_update_sessions')await new Promise<void>(resolve=>{finish=resolve;});});
+ fireEvent.click(screen.getByRole('button',{name:'Stop and update'}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith('stop_update_sessions',{sessions:running,confirmed:true}));
+ expect(value.downloadAndInstall).not.toHaveBeenCalled();expect(invoke.mock.calls.some(c=>c[0]==='begin_app_update')).toBe(false);
+ finish();await waitFor(()=>expect(value.downloadAndInstall).toHaveBeenCalledTimes(1));
+ expect(invoke.mock.calls.map(c=>c[0])).toEqual(['active_update_sessions','stop_update_sessions','begin_app_update','restart_after_update']);
+});
+it('never installs after a stop timeout',async()=>{
+ const value=await blockedUpdate();invoke.mockRejectedValue(new Error('Still closing'));
+ fireEvent.click(screen.getByRole('button',{name:'Stop and update'}));await screen.findByRole('alert');
+ expect(value.downloadAndInstall).not.toHaveBeenCalled();expect(invoke.mock.calls.some(c=>c[0]==='begin_app_update')).toBe(false);
+});
+it('keeps older supervisors running and asks for manual closure',async()=>{
+ invoke.mockResolvedValue([{...running[0],canStop:false}]);const value=await findUpdate();
+ fireEvent.click(screen.getByRole('checkbox'));fireEvent.click(screen.getByRole('button',{name:'Download & install 0.6.6'}));
+ await screen.findByRole('dialog');expect((screen.getByRole('button',{name:'Stop and update'}) as HTMLButtonElement).disabled).toBe(true);
+ expect(value.downloadAndInstall).not.toHaveBeenCalled();
 });
