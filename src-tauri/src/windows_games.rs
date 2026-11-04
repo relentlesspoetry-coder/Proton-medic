@@ -1,6 +1,7 @@
 //! User-approved Windows installers in dedicated prefixes. Never executes a shell.
 pub mod history;
 pub mod monitor;
+pub mod update_stop;
 use crate::{diagnostics, scanner};
 use serde::{Deserialize, Serialize};
 use std::{collections::{HashMap, HashSet}, fs::{self, File, OpenOptions}, io::{Read, Seek, SeekFrom, Write},

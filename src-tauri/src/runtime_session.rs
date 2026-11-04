@@ -1,4 +1,5 @@
-//! Bounded runtime output and Linux process-family observation. Never kills a process.
+//! Bounded runtime output and Linux process-family supervision.
+mod stop;
 use std::{collections::{HashMap, HashSet}, fs::{self, File}, io::{self, Read, Seek, SeekFrom, Write}, os::fd::AsRawFd,
     process::{Child, ChildStderr, ChildStdout, ExitStatus}, sync::{Arc, atomic::{AtomicBool, Ordering}}, thread,
     time::{Duration, Instant}};
@@ -243,6 +244,7 @@ pub(crate) fn spawn_runtime(command: &mut std::process::Command,
 fn wait_for_runtime_family(primary: libc::pid_t, logs: &std::path::Path) -> io::Result<i32> {
     let mut exit_code=None;let mut known=HashMap::new();
     let mut monitor=crate::windows_games::monitor::Sampler::new(logs);
+    let mut stop_control=stop::StopControl::new(logs);
     loop {
         loop {
             let mut status=0;
@@ -262,6 +264,7 @@ fn wait_for_runtime_family(primary: libc::pid_t, logs: &std::path::Path) -> io::
             }
         }
         if let Ok(all)=processes() {
+            stop_control.poll(&all);
             family_alive(&all,std::process::id(),&mut known);
             let mut observed=known.clone();observed.remove(&std::process::id());
             monitor.observe(&all,&observed);

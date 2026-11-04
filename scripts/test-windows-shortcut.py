@@ -121,6 +121,29 @@ class WindowsShortcutTests(unittest.TestCase):
             time.sleep(0.05)
         return process
 
+    def test_confirmed_stop_request_closes_only_its_run_and_releases_update_lock(self):
+        process = self.start_held_runtime()
+        saved = json.loads((self.profile/'profile.json').read_text())
+        logs = self.profile/'logs'/saved['runId']
+        deadline = time.monotonic()+10
+        while (not (logs/'stop-supported').exists() or (logs/'stop-supported').read_text()!=saved['runId']) and time.monotonic()<deadline:
+            time.sleep(0.02)
+        self.assertEqual((logs/'stop-supported').read_text(), saved['runId'])
+        # An incorrect run token cannot stop even this disposable fixture.
+        (logs/'stop-request').write_text('wrong-run')
+        time.sleep(0.5)
+        self.assertIsNone(process.poll())
+        unrelated = subprocess.Popen(['/usr/bin/sleep', '30'])
+        self.addCleanup(lambda: (unrelated.terminate(), unrelated.wait()))
+        (logs/'stop-request').write_text(saved['runId'])
+        process.communicate(timeout=15)
+        self.assertIsNone(unrelated.poll())
+        final = json.loads((self.profile/'profile.json').read_text())
+        self.assertFalse(final['state'].endswith('running'))
+        self.assertEqual(final['exitCode'], 128+signal.SIGTERM)
+        with (self.home/'data/proton-medic/locks/activity.lock').open('r+') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
     def test_detached_child_keeps_profile_prefix_and_update_locked(self):
         runtime = self.home/'bin/wine'
         child = self.home/'detached.py'
