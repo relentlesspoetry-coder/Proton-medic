@@ -219,6 +219,19 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {fn new()->Self{let p=std::env::temp_dir().join(format!("pm-logging-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));fs::create_dir_all(&p).unwrap();Self(p)}}
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
+    #[test] fn bom_logging_enable_and_restore_preserve_original_bytes() {
+        for prefix in ["\u{feff}","\u{feff}\n","\u{feff}// retained café\n"] {
+            let f=Fixture::new();let path=f.0.join("localconfig.vdf");
+            let original=format!("{prefix}{CONFIG}");fs::write(&path,&original).unwrap();
+            let(status,before,after)=enable_file(&path,"123",false).unwrap();
+            assert_eq!(fs::read_to_string(status.backup_path.unwrap()).unwrap(),original);
+            let enabled=fs::read_to_string(&path).unwrap();assert!(enabled.starts_with(prefix));
+            assert_eq!(launch_value(&enabled,"123").unwrap().as_deref(),Some("PROTON_LOG=1 %command% -dx11 -windowed"));
+            assert_eq!(launch_value(&enabled,"456").unwrap().as_deref(),Some("-safe"));
+            restore_file(&path,"123",before.as_deref(),after.as_deref(),false).unwrap();
+            assert_eq!(fs::read_to_string(&path).unwrap(),original);
+        }
+    }
     #[test] fn cancelling_queued_logging_releases_lease_without_touching_settings() {
         let f=Fixture::new();let path=f.0.join("localconfig.vdf");fs::write(&path,CONFIG).unwrap();
         let lease=crate::coordination::config(&path).unwrap();
