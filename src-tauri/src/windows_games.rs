@@ -173,7 +173,7 @@ fn save_settings_in(root:&Path,id:&str,next:Option<LaunchSettings>,expected:Laun
     if settings(&r)!=expected {return Err("Launch settings changed in another window. Cancel editing, refresh, and review the latest values.".into());}
     let value=validate_launch_settings(next.unwrap_or_else(||LaunchSettings{runtime_id:r.default_runtime_id.clone().unwrap_or_else(||r.runtime_id.clone()),arguments:vec![],working_directory:None}))?;
     let rt=resolve(&value.runtime_id)?;
-    if rt.kind=="proton" && prefix_path(&dir,&r).file_name().is_none_or(|n|n!="pfx") {return Err("Proton requires an existing prefix named pfx. Choose Wine for a Wine-style prefix; the prefix will not be moved.".into());}
+    if rt.kind=="proton" && prefix_path(&dir,&r).file_name().is_none_or(|n|n!="pfx") {return Err("Proton requires an existing prefix named pfx. This profile has an incompatible prefix layout; its saved runtime and prefix are unchanged.".into());}
     if settings(&r)!=value {
         backup_profile(&dir,&r)?;
         if r.default_runtime_id.is_none(){r.default_runtime_id=Some(r.runtime_id.clone());}
@@ -359,7 +359,7 @@ pub fn register(name:String,path:String,prefix:String,runtime_id:String,confirme
     let name=validate_name(&name)?;let exe=windows_exe(Path::new(&path))?;
     let prefix=validate_prefix(Path::new(&prefix))?;let rt=runtime(&runtime_id)?;
     if rt.kind=="proton" && prefix.file_name().is_none_or(|n|n!="pfx") {
-        return Err("Proton requires the existing prefix directory named pfx inside its compatibility-data directory. Use the Wine runtime for a Wine-style prefix.".into());
+        return Err("Proton requires the existing prefix directory named pfx inside its compatibility-data directory. Select a compatible Proton installation; the prefix will not be moved.".into());
     }
     let root=root()?;let _lock=lock_profile(&root)?;
     for item in fs::read_dir(&root).map_err(|e|e.to_string())?.flatten(){

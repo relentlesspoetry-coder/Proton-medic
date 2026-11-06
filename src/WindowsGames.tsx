@@ -9,6 +9,7 @@ import { WindowsLaunchSettings } from './WindowsLaunchSettings';
 import { GameIcon } from './GameIcon';
 import { LaunchHistory } from './LaunchHistory';
 import { ResourceMonitor } from './ResourceMonitor';
+import { selectableRuntimes } from './runtimeOptions';
 interface LogReport { findings: Finding[]; logs: { name: string; status: string; truncated: boolean }[] }
 export interface Runtime { id: string; name: string; kind: string }
 export interface Game { id: string; name: string; runtimeId: string; gameExe: string | null; state: string; exitCode: number | null; message: string; directory: string; windowsDrive: string; prefixDirectory: string; logDirectory: string | null; launchArguments?: string[]; workingDirectory?: string | null; lastLaunchedAt?: number | null }
@@ -48,7 +49,8 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
     if (request !== sequence.current) return;
     setRefreshError('');
     setLibrary(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); setLoaded(true);
-    const nextRuntime = next.runtimes.some(r => r.id === runtimeRef.current) ? runtimeRef.current : next.runtimes[0]?.id ?? '';
+    const options = selectableRuntimes(next.runtimes);
+    const nextRuntime = options.some(r => r.id === runtimeRef.current) ? runtimeRef.current : options[0]?.id ?? '';
     if (nextRuntime !== runtimeRef.current) chooseRuntime(nextRuntime);
   }, []);
   useEffect(() => {
@@ -77,7 +79,7 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
     setPrefix(mode === 'existing' && drive >= 0 ? file.slice(0, drive) : '');
   });
   const submit = () => run(async () => {
-    if (!approved || !installer || !name.trim() || !runtime || (mode === 'existing' && !prefix)) return;
+    if (!approved || !installer || !name.trim() || !selectableRuntimes(library.runtimes).some(r => r.id === runtime) || (mode === 'existing' && !prefix)) return;
     const game = mode === 'install'
       ? await invoke<Game>('install_windows_game', { name, installer, runtimeId: runtime, confirmed: true })
       : await invoke<Game>('register_windows_game', { name, path: installer, prefix, runtimeId: runtime, confirmed: true });
@@ -91,10 +93,11 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
   });
   const switchMode = (next: 'install' | 'existing') => { setMode(next); setInstaller(''); setName(''); setPrefix(''); setApproved(false); };
 
+  const runtimeOptions = selectableRuntimes(library.runtimes);
   const shownGames=selectedId?library.games.filter(game=>game.id===selectedId):library.games;
   return <>
     {selectedId&&<button className="pm-back" onClick={onBack}><ArrowLeft size={17}/>Back to My Games</button>}
-    <div className="pm-page-title"><div><h1>{selectedId?shownGames[0]?.name??'Windows game':'Windows Games'}</h1><p>Launch games with their saved Wine or Proton environment.</p></div><button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void run(refresh)}><RefreshCw size={17}/>Refresh</button></div>
+    <div className="pm-page-title"><div><h1>{selectedId?shownGames[0]?.name??'Windows game':'Windows Games'}</h1><p>Launch games with their saved runtime and settings.</p></div><button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void run(refresh)}><RefreshCw size={17}/>Refresh</button></div>
     {refreshError && <p role="alert" className="pm-repair-danger">{refreshError} Your saved games are unchanged. Use Refresh to try again.</p>}
     {error && <p role="alert" className="pm-repair-danger">{error}</p>}
     {notice && <p role="status" className="pm-auto-message">{notice}</p>}
@@ -117,15 +120,15 @@ export function WindowsGames({selectedId,onBack}:{selectedId?:string;onBack?:()=
       {installer && <p className="pm-selected-path"><code>{installer}</code></p>}
       <div className="pm-form-grid">
         <label>Game name<input aria-label="Game name" value={name} maxLength={120} disabled={busy} onChange={e => { setName(e.target.value); setApproved(false); }}/></label>
-        <label>Runtime<select aria-label="Runtime" value={runtime} disabled={busy} onChange={e => { chooseRuntime(e.target.value); }}>{library.runtimes.map(r => <option value={r.id} key={r.id}>{r.name} ({r.kind})</option>)}</select></label>
+        <label>Runtime<select aria-label="Runtime" value={runtime} disabled={busy} onChange={e => { chooseRuntime(e.target.value); }}>{runtimeOptions.map(r => <option value={r.id} key={r.id}>{r.name} ({r.kind})</option>)}</select></label>
       </div>
       {mode === 'existing' && <div className="pm-prefix-picker"><button className="pm-button pm-button-secondary" disabled={busy} onClick={() => void run(async () => {
         const directory = await open({ multiple: false, directory: true, title: 'Choose the existing Windows prefix containing drive_c and system.reg' });
         if (typeof directory === 'string') { setPrefix(directory); setApproved(false); }
       })}>Choose existing prefix</button><p>{prefix ? <code>{prefix}</code> : 'Choose the folder containing drive_c and system.reg. For Proton, choose compatdata/pfx.'}</p></div>}
-      {!library.runtimes.length && loaded && <p role="status">No usable Wine or native Steam Proton runtime found. Install a runtime, then refresh.</p>}
+      {!runtimeOptions.length && loaded && <p role="status">No usable Proton runtime found. Install Proton in Steam, or install GE-Proton and UMU, then refresh.</p>}
       <label className="pm-launch-consent"><input type="checkbox" checked={approved} disabled={busy} onChange={e => setApproved(e.target.checked)}/><span>{mode === 'install' ? 'I trust this installer and approve running it. Windows programs can access my user files.' : 'I trust this executable and approve using the selected runtime with its existing prefix.'}</span></label>
-      <button className="pm-button pm-button-primary" disabled={busy || !approved || !installer || !name.trim() || !runtime || (mode === 'existing' && !prefix)} onClick={() => void submit()}><Download size={17}/>{busy ? 'Working…' : mode === 'install' ? 'Run installer' : 'Add game'}</button>
+      <button className="pm-button pm-button-primary" disabled={busy || !approved || !installer || !name.trim() || !selectableRuntimes(library.runtimes).some(r => r.id === runtime) || (mode === 'existing' && !prefix)} onClick={() => void submit()}><Download size={17}/>{busy ? 'Working…' : mode === 'install' ? 'Run installer' : 'Add game'}</button>
       <details className="pm-update-details"><summary>{mode === 'install' ? 'Installation help' : 'Which prefix should I use?'}</summary><p>{mode === 'install' ? 'Complete the installer’s setup window and keep Proton Medic open. When it finishes, select the installed game’s .exe in its card above. Files on other drives can be selected. An installer exit code alone does not confirm installation.' : 'Use the same prefix and runtime that previously ran the game. A new empty prefix will not contain its registry settings or installed dependencies. Adding a game saves a launcher profile without copying or reinstalling it.'}</p></details>
     </section>}
   </>;

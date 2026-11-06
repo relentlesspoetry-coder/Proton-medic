@@ -4,7 +4,7 @@ import { WindowsGames } from '../src/WindowsGames';
 const { invoke, open } = vi.hoisted(() => ({ invoke: vi.fn(), open: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open }));
-const runtime={id:'wine:/fixture/wine',name:'Fixture Wine',kind:'wine'};
+const runtime={id:'proton:/fixture/proton',name:'Fixture Proton',kind:'proton'};
 const game={id:'123',name:'Fixture',runtimeId:runtime.id,gameExe:null,state:'installer-exited',exitCode:0,message:'Select and test the installed game',directory:'/managed/123',windowsDrive:'/managed/123/compatdata/pfx/drive_c',logDirectory:'/managed/123/logs/1'};
 beforeEach(()=>{vi.useFakeTimers();invoke.mockReset();open.mockReset();invoke.mockResolvedValue({runtimes:[runtime],games:[],warnings:[]});});
 afterEach(()=>{cleanup();vi.useRealTimers();});
@@ -145,8 +145,8 @@ it('explains when a selected game was removed from the visible library',async()=
 it('clears approval when a refresh replaces the selected runtime',async()=>{
  let runtimes=[runtime];invoke.mockImplementation(async command=>command==='list_windows_games'?{runtimes,games:[],warnings:[]}:null);
  await mount();open.mockResolvedValue('/tmp/setup.exe');await click('Choose installer (.exe)');fireEvent.click(screen.getByRole('checkbox'));
- runtimes=[{...runtime,id:'wine:replacement',name:'Replacement Wine'}];await click('Refresh');
- expect((screen.getByLabelText('Runtime') as HTMLSelectElement).value).toBe('wine:replacement');
+ runtimes=[{...runtime,id:'proton:replacement',name:'Replacement Proton'}];await click('Refresh');
+ expect((screen.getByLabelText('Runtime') as HTMLSelectElement).value).toBe('proton:replacement');
  expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
  expect((screen.getByRole('button',{name:'Run installer'}) as HTMLButtonElement).disabled).toBe(true);
  expect(invoke).not.toHaveBeenCalledWith('install_windows_game',expect.anything());
@@ -178,4 +178,17 @@ it('reports an installer start failure without a started notice',async()=>{
  await mount();open.mockResolvedValue('/Downloads/setup.exe');await click('Choose installer (.exe)');fireEvent.click(screen.getByRole('checkbox'));await click('Run installer');
  expect(screen.getByRole('alert').textContent).toContain('Runtime failed to start: missing interpreter');
  expect(screen.queryByText(/Installer started\./)).toBeNull();expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+});
+
+it('offers only Proton for new installers and existing game registration',async()=>{
+ invoke.mockResolvedValue({runtimes:[{id:'wine:system',name:'System Wine',kind:'wine'},{id:'bottles:runner',name:'Bottles',kind:'bottles'},runtime],games:[],warnings:[]});
+ await mount();expect(screen.getAllByRole('option').map(o=>o.textContent)).toEqual(['Fixture Proton (proton)']);
+ expect((screen.getByLabelText('Runtime') as HTMLSelectElement).value).toBe(runtime.id);
+ await click('Add installed game');expect(screen.getAllByRole('option').map(o=>o.textContent)).toEqual(['Fixture Proton (proton)']);
+});
+it('does not fall back to Wine when no Proton is installed',async()=>{
+ invoke.mockResolvedValue({runtimes:[{id:'wine:system',name:'System Wine',kind:'wine'}],games:[],warnings:[]});
+ await mount();expect(screen.queryAllByRole('option')).toHaveLength(0);
+ open.mockResolvedValue('/tmp/setup.exe');await click('Choose installer (.exe)');fireEvent.click(screen.getByRole('checkbox'));
+ expect((screen.getByRole('button',{name:'Run installer'}) as HTMLButtonElement).disabled).toBe(true);
 });
