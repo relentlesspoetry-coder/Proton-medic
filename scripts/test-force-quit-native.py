@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -97,6 +98,33 @@ def windows(title):
     if result.returncode not in (0, 1):
         raise RuntimeError(result.stderr)
     return result.stdout.split()
+
+
+def capture_failure(output):
+    """Best-effort diagnostics must never replace the original test failure."""
+    from PIL import ImageGrab
+    try:
+        ImageGrab.grab(xdisplay=os.environ['DISPLAY']).save(output/'force-quit-failure.png')
+    except Exception as error:
+        print(f'Could not capture failure screenshot: {error}', file=sys.stderr)
+    try:
+        entries = []
+        for window in windows('.*'):
+            title = xdo('getwindowname', window, check=False)
+            entries.append(f'{window}: {title.stdout.strip() or title.stderr.strip()}')
+        listing = '\n'.join(entries) or '(no visible windows)'
+        (output/'force-quit-windows.txt').write_text(listing+'\n')
+        print(f'Visible windows at failure:\n{listing}', file=sys.stderr)
+    except Exception as error:
+        print(f'Could not list failure windows: {error}', file=sys.stderr)
+    try:
+        with (output/'force-quit.log').open('rb') as log:
+            log.seek(0, os.SEEK_END)
+            log.seek(max(0, log.tell()-16000))
+            tail = log.read().decode('utf-8', errors='replace')
+        print(f'Recent native log (last 16000 bytes):\n{tail}', file=sys.stderr, flush=True)
+    except Exception as error:
+        print(f'Could not read native log: {error}', file=sys.stderr)
 
 
 DIALOG = '^Force quit Proton Medic\\?$'
@@ -197,16 +225,21 @@ def main():
                     processes.append(unrelated)
                     gui = subprocess.Popen([str(binary)], env=env, stdout=log, stderr=log)
                     processes.append(gui)
-                    main_window = wait_for(lambda: windows('^Proton Medic$'), 'Main window did not appear')[0]
-                    time.sleep(1)
                     def preserved():
-                        assert gui.poll() is None, 'GUI exited without confirmation'
-                        assert shortcut.poll() is None, 'Shortcut exited without confirmation'
+                        assert gui.poll() is None, f'GUI exited without confirmation (status {gui.returncode})'
+                        assert shortcut.poll() is None, f'Shortcut exited without confirmation (status {shortcut.returncode})'
                         assert alive(pid, start), 'Owned runtime stopped without confirmation'
                         assert unrelated.poll() is None, 'Unrelated process was stopped'
+                    def visible_while_alive(title):
+                        preserved()
+                        return windows(title)
+                    main_window = wait_for(lambda: visible_while_alive('^Proton Medic$'),
+                                           'Main window did not appear')[0]
+                    time.sleep(1)
                     def dialog():
+                        preserved()
                         desktop.close(main_window)
-                        found = wait_for(lambda: windows(DIALOG), 'Force Quit dialog did not appear')
+                        found = wait_for(lambda: visible_while_alive(DIALOG), 'Force Quit dialog did not appear')
                         assert len(found) == 1, 'Multiple confirmation dialogs appeared'
                         assert found[0] != main_window, 'Dialog search matched the main GUI'
                         return found[0]
@@ -236,6 +269,10 @@ def main():
                     saved = json.loads((profile/'profile.json').read_text())
                     assert not saved['state'].endswith('running'), 'Profile remained running'
                     print('PASS: Keep Open, dismissal, single dialog, forced runtime shutdown, unrelated process safety')
+                except Exception:
+                    log.flush()
+                    capture_failure(args.output)
+                    raise
                 finally:
                     release.touch()
                     for process in reversed(processes):
