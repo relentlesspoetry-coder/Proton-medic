@@ -1,17 +1,23 @@
 //! Serialize updates against game launches and configuration changes.
 use std::{path::{Path, PathBuf}, process::Stdio, sync::{atomic::{AtomicBool, Ordering}, Mutex, OnceLock, RwLock, RwLockReadGuard}};
-static UPDATING: RwLock<bool> = RwLock::new(false);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase { Idle, Updating, Closing }
+static UPDATING: RwLock<Phase> = RwLock::new(Phase::Idle);
 static EXECUTABLE: OnceLock<PathBuf> = OnceLock::new();
 pub fn initialize() { if let Ok(path) = crate::portable::executable() { let _ = EXECUTABLE.set(path); } }
 static REOPEN_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 static UPDATE_LEASE: Mutex<Option<std::fs::File>> = Mutex::new(None);
-pub struct Activity { _local: RwLockReadGuard<'static, bool>, _shared: std::fs::File }
+pub struct Activity { _local: RwLockReadGuard<'static, Phase>, _shared: std::fs::File }
 pub fn activity() -> Result<Activity, String> {
     Ok(Activity { _local: activity_in(&UPDATING)?, _shared: crate::coordination::activity()? })
 }
-fn activity_in(state: &RwLock<bool>) -> Result<RwLockReadGuard<'_, bool>, String> {
+fn activity_in(state: &RwLock<Phase>) -> Result<RwLockReadGuard<'_, Phase>, String> {
     let guard = state.read().map_err(|_| "Update state unavailable")?;
-    if *guard { return Err("An app update is in progress. Wait for Proton Medic to reopen.".into()); }
+    match *guard {
+        Phase::Updating => return Err("An app update is in progress. Wait for Proton Medic to reopen.".into()),
+        Phase::Closing => return Err("Proton Medic is closing. Choose Keep Open to continue working.".into()),
+        Phase::Idle => {},
+    }
     Ok(guard)
 }
 pub fn begin() -> Result<(), String> {
@@ -24,35 +30,79 @@ pub fn begin() -> Result<(), String> {
         Ok(())
     })
 }
-fn begin_in(state: &RwLock<bool>, idle: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+fn begin_in(state: &RwLock<Phase>, idle: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     let mut updating = state.try_write().map_err(|_| "Finish the current operation before updating")?;
-    if *updating { return Err("An app update is already in progress".into()); }
+    if *updating != Phase::Idle { return Err("An app update or shutdown is already in progress".into()); }
     idle()?;
-    *updating = true; Ok(())
+    *updating = Phase::Updating; Ok(())
 }
 pub fn cancel() -> Result<(), String> {
     let mut updating = UPDATING.write().map_err(|_| "Update state unavailable")?;
+    if *updating == Phase::Closing { return Err("Proton Medic is closing, not updating".into()); }
     UPDATE_LEASE.lock().map_err(|_|"Update lock unavailable")?.take();
     REOPEN_ATTEMPTED.store(false, Ordering::Release);
-    *updating = false; Ok(())
+    *updating = Phase::Idle; Ok(())
 }
 // Reserve this process for shutdown only after its supervised work has finished.
 // The same local gate excludes a new GUI operation between the check and window close.
 pub fn prepare_close() -> Result<(), String> {
     close_in(&UPDATING, REOPEN_ATTEMPTED.load(Ordering::Acquire), || {
         crate::windows_games::require_update_idle()?;
+        if !crate::windows_games::update_stop::active()?.is_empty() { return Err("Windows games or installers launched through Proton Medic are still running.".into()); }
         crate::workflow::require_update_idle()?;
         crate::game_logging::require_update_idle()?;
         if crate::proton_manager::busy() { return Err("Wait for the Proton download to finish or cancel it first.".into()); }
+        // Close the same cross-instance race as force quit. Reuse an updater's
+        // lease during manual recovery rather than trying to lock it twice.
+        retain_shutdown_lease(&mut *UPDATE_LEASE.lock().map_err(|_|"Shutdown lock unavailable")?, crate::coordination::update)?;
         Ok(())
     })
 }
-fn close_in(state: &RwLock<bool>, reopen_attempted: bool, idle: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
-    let mut stopping = state.try_write().map_err(|_|"Wait for the current operation to finish.")?;
-    if *stopping && !reopen_attempted { return Err("Wait for the app update to finish.".into()); }
-    idle()?;
-    *stopping = true;
+fn retain_shutdown_lease(held: &mut Option<std::fs::File>, acquire: impl FnOnce() -> Result<std::fs::File, String>) -> Result<(), String> {
+    if held.is_none() { *held = Some(acquire()?); }
     Ok(())
+}
+fn close_in(state: &RwLock<Phase>, reopen_attempted: bool, idle: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+    let mut stopping = state.try_write().map_err(|_|"Wait for the current operation to finish.")?;
+    if *stopping != Phase::Idle && !(*stopping == Phase::Updating && reopen_attempted) { return Err("Wait for the app update or shutdown to finish.".into()); }
+    idle()?;
+    *stopping = Phase::Closing;
+    Ok(())
+}
+// Keep launch/configuration commands out while the user reviews the force-quit
+// prompt. Dropping this reservation on Cancel/error restores normal operation.
+pub(crate) struct CloseReservation<'a> { state: &'a RwLock<Phase>, committed: bool }
+pub(crate) fn reserve_force_close() -> Result<CloseReservation<'static>, String> {
+    reserve_close_in(&UPDATING, || {
+        crate::workflow::require_update_idle()?;
+        crate::game_logging::require_update_idle()?;
+        if crate::proton_manager::busy() { return Err("Cancel the Proton download before closing.".into()); }
+        Ok(())
+    })
+}
+fn reserve_close_in(state: &RwLock<Phase>, ready: impl FnOnce() -> Result<(), String>) -> Result<CloseReservation<'_>, String> {
+    close_in(state, false, ready)?;
+    Ok(CloseReservation { state, committed: false })
+}
+impl CloseReservation<'_> {
+    pub(crate) fn finish(mut self) -> Result<(), String> {
+        // All shortcuts/other GUI instances use this lease too. Acquire it only
+        // after reviewed runtime supervisors have released their shared leases.
+        let lease = crate::coordination::update()?;
+        crate::windows_games::require_update_idle()?;
+        *UPDATE_LEASE.lock().map_err(|_|"Shutdown lock unavailable")? = Some(lease);
+        self.committed = true;
+        Ok(())
+    }
+}
+impl Drop for CloseReservation<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            if let Ok(mut phase) = self.state.write() {
+                if *phase == Phase::Closing { *phase = Phase::Idle; }
+            }
+        }
+    }
 }
 fn validate_version(value: &str) -> Result<(), String> {
     let parts: Vec<_> = value.split('.').collect();
@@ -78,7 +128,7 @@ fn launch_installed(path: &Path, version: &str) -> Result<std::process::Child, S
 }
 pub fn restart(app: tauri::AppHandle, version: String) -> Result<(), String> {
     let updating = UPDATING.read().map_err(|_| "Update state unavailable")?;
-    if !*updating { return Err("No app update is awaiting relaunch".into()); }
+    if *updating != Phase::Updating { return Err("No app update is awaiting relaunch".into()); }
     REOPEN_ATTEMPTED.store(true, Ordering::Release);
     let path = EXECUTABLE.get().ok_or("Installed program path unavailable")?;
     launch_installed(path, &version)?;
@@ -88,12 +138,36 @@ pub fn restart(app: tauri::AppHandle, version: String) -> Result<(), String> {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     #[test] fn close_waits_for_work_and_reserves_shutdown_without_blocking_manual_update_recovery() {
-        let state=RwLock::new(false);let work=activity_in(&state).unwrap();
+        let state=RwLock::new(Phase::Idle);let work=activity_in(&state).unwrap();
         assert!(close_in(&state,false,||Ok(())).is_err());drop(work);
         assert!(close_in(&state,false,||Err("Game is running".into())).is_err());assert!(activity_in(&state).is_ok());
         close_in(&state,false,||Ok(())).unwrap();assert!(activity_in(&state).is_err());
         assert!(close_in(&state,false,||Ok(())).is_err());
+        assert!(close_in(&state,true,||Ok(())).is_err());
+        *state.write().unwrap()=Phase::Updating;
         assert!(close_in(&state,true,||Ok(())).is_ok());
+    }
+    #[test] fn cancelling_or_failing_force_close_releases_gate_but_commit_retains_it() {
+        let state=RwLock::new(Phase::Idle);
+        let reservation=reserve_close_in(&state,||Ok(())).unwrap();
+        assert!(activity_in(&state).is_err());
+        assert!(begin_in(&state,||Ok(())).is_err());
+        assert!(reserve_close_in(&state,||Ok(())).is_err());
+        drop(reservation);
+        assert!(activity_in(&state).is_ok());
+        assert!(reserve_close_in(&state,||Err("Repair is active".into())).is_err());
+        assert!(activity_in(&state).is_ok());
+        let mut reservation=reserve_close_in(&state,||Ok(())).unwrap();
+        reservation.committed=true; drop(reservation);
+        assert!(activity_in(&state).is_err());
+    }
+    #[test] fn normal_close_retains_cross_instance_lease_and_reuses_update_recovery_lease() {
+        let mut held=None;
+        assert!(retain_shutdown_lease(&mut held,||Err("Shortcut started".into())).is_err());
+        assert!(held.is_none());
+        retain_shutdown_lease(&mut held,||Ok(std::fs::File::open("/dev/null").unwrap())).unwrap();
+        assert!(held.is_some());
+        retain_shutdown_lease(&mut held,||panic!("must reuse updater lease")).unwrap();
     }
     #[test] fn rejects_invalid_versions() {
         for v in ["", "1.2", "1.2.3.4", "1.2.3;sh", "../1", "1.2.-3"] { assert!(validate_version(v).is_err()); }
@@ -118,13 +192,13 @@ pub fn restart(app: tauri::AppHandle, version: String) -> Result<(), String> {
     }
 
     #[test] fn update_lease_blocks_new_work_and_requires_running_work_to_finish() {
-        let state=RwLock::new(false);let work=activity_in(&state).unwrap();
+        let state=RwLock::new(Phase::Idle);let work=activity_in(&state).unwrap();
         assert!(begin_in(&state,||Ok(())).is_err());drop(work);
         assert!(begin_in(&state,||Err("Installer running".into())).is_err());
         assert!(activity_in(&state).is_ok());
         begin_in(&state,||Ok(())).unwrap();assert!(activity_in(&state).is_err());
         assert!(begin_in(&state,||Ok(())).is_err());
-        *state.write().unwrap()=false;assert!(activity_in(&state).is_ok());
+        *state.write().unwrap()=Phase::Idle;assert!(activity_in(&state).is_ok());
     }
 
 }

@@ -49,6 +49,11 @@ jobs:
           image="/source/${image#"$PWD/"}"
           docker run --rm -v "$PWD:/source:ro" pm-portable-smoke python3 scripts/test-windows-shortcut.py "$image"
           docker run --rm --security-opt seccomp=unconfined --shm-size=512m -v "$PWD:/source:ro" -v "$PWD/portable-smoke:/output" pm-portable-smoke dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' python3 scripts/smoke-native.py "$image" /output/native.png
+      - name: Check native force quit with disposable Wine fixture
+        run: |
+          image=$(realpath portable/*.AppImage)
+          image="/source/${image#"$PWD/"}"
+          docker run --rm --security-opt seccomp=unconfined --shm-size=512m -v "$PWD:/source:ro" -v "$PWD/portable-smoke:/output" pm-portable-smoke dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' python3 scripts/test-force-quit-native.py "$image" /output
       - name: Record native render
         run: |
           docker run --rm -i -v "$PWD:/source:ro" pm-portable-smoke python3 - <<'PY'
