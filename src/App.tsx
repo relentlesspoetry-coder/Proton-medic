@@ -152,12 +152,12 @@ export default function App() {
 
   useEffect(() => { void scanGames(); }, [scanGames]);
 
-  const selectAutomatically = useCallback(async (appId: string, libraryPath: string) => {
+  const selectAutomatically = useCallback(async (appId: string, libraryPath: string, expectedTool: string) => {
     setAutoBusy(true);
     setAutoMessage(null);
     const selectionKey = gameKey({ appId, libraryPath });
     try {
-      const result = await invoke<AutoSelection>('auto_select_proton', { appId, libraryPath, confirmed: true });
+      const result = await invoke<AutoSelection>('auto_select_proton', { appId, libraryPath, expectedTool, confirmed: true });
       setAutoMessage({ gameKey: selectionKey, message: result.changed
         ? `${result.gameName}: ${result.toolName} selected. Restart Steam, then test your game. Config backup: ${result.backupPath}`
         : `${result.gameName}: ${result.toolName} is already selected.` });
@@ -183,6 +183,7 @@ export default function App() {
   }), [scan, issueByGame]);
   const problemKeys = useMemo(() => new Set(problems.map(gameKey)), [problems]);
   const selectedGame = scan?.games.find(g => gameKey(g) === selectedKey) ?? null;
+  const selectedAdvice = selectedGame ? advice?.games.find(a => a.appId === selectedGame.appId && a.libraryPath === selectedGame.libraryPath) : undefined;
   const selectedDiagnosis = selectedGame ? issueByGame.get(gameKey(selectedGame)) ?? null : null;
   const openGame = (game: Game) => { setSelectedWindowsId(undefined); setSelectedKey(gameKey(game)); setPage('games'); };
   const showProblems = () => { setLibraryPage(0); setSelectedWindowsId(undefined); setLibrarySource('all'); setSelectedKey(null); setQuery(''); setFilter('issues'); setPage('games'); };
@@ -240,12 +241,12 @@ export default function App() {
             </> },
             { id: 'proton', label: 'Proton', content: <>
           <GameProtonPicker key={gameKey(selectedGame)} game={selectedGame} onChanged={() => void scanGames()} onManage={() => setPage('protons')}/>
-          <ProtonAdvisor advice={advice?.games.find(a => a.appId === selectedGame.appId && a.libraryPath === selectedGame.libraryPath)} loading={advising}
-            applying={autoBusy} message={autoMessage?.gameKey === gameKey(selectedGame) ? autoMessage.message : null} onApply={() => void selectAutomatically(selectedGame.appId, selectedGame.libraryPath)}/>
+          <ProtonAdvisor advice={selectedAdvice} loading={advising}
+            applying={autoBusy} message={autoMessage?.gameKey === gameKey(selectedGame) ? autoMessage.message : null} onApply={() => { if (selectedAdvice?.suggestedTool) void selectAutomatically(selectedGame.appId, selectedGame.libraryPath, selectedAdvice.suggestedTool); }}/>
             </> },
             { id: 'launch', label: 'Launch & repair', content: <>
-          <FixAndTest key={gameKey(selectedGame)} game={selectedGame}/>
-          <LaunchTest key={gameKey(selectedGame)} game={selectedGame}/>
+          <FixAndTest key={`fix:${gameKey(selectedGame)}`} game={selectedGame}/>
+          <LaunchTest key={`launch:${gameKey(selectedGame)}`} game={selectedGame}/>
 
             </> },
             { id: 'backups', label: 'Backups & details', content: <>

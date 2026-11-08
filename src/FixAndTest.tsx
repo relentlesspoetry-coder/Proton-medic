@@ -34,10 +34,13 @@ export function FixAndTest({ game }: { game: Game }) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [logging, setLogging] = useState<LoggingStatus | null>(null);
+  const loggingRequest = useRef(0);
+  const loggingMutation = useRef(false);
   useEffect(() => {
     let stopped=false;
+    const request = ++loggingRequest.current;
     void invoke<LoggingStatus | null>('get_game_logging', {appId:game.appId,libraryPath:game.libraryPath})
-      .then(next=>{if(!stopped)setLogging(next);}).catch(e=>{if(!stopped)setError(String(e));});
+      .then(next=>{if(!stopped && request === loggingRequest.current)setLogging(next);}).catch(e=>{if(!stopped && request === loggingRequest.current)setError(String(e));});
     return()=>{stopped=true;};
   },[game.appId,game.libraryPath]);
   useEffect(() => {
@@ -45,15 +48,25 @@ export function FixAndTest({ game }: { game: Game }) {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const check = async () => {
+      const request = loggingRequest.current;
       try {
-        const next = await invoke<LoggingStatus | null>('get_game_logging', { appId: game.appId, libraryPath: game.libraryPath });
-        if (!stopped && next) setLogging(next);
-      } catch (e) { if (!stopped) setError(String(e)); }
+        if (!loggingMutation.current) {
+          const next = await invoke<LoggingStatus | null>('get_game_logging', { appId: game.appId, libraryPath: game.libraryPath });
+          if (!stopped && request === loggingRequest.current && next) setLogging(next);
+        }
+      } catch (e) { if (!stopped && request === loggingRequest.current) setError(String(e)); }
       if (!stopped) timer = setTimeout(() => void check(), 5000);
     };
     timer = setTimeout(() => void check(), 5000);
     return () => { stopped = true; clearTimeout(timer); };
   }, [logging?.state, game.appId, game.libraryPath]);
+  // Writes invalidate older reads, including the initial receipt lookup and queued polls.
+  const updateLogging = async (task: () => Promise<LoggingStatus>) => {
+    loggingMutation.current = true;
+    ++loggingRequest.current;
+    try { setLogging(await task()); }
+    finally { loggingMutation.current = false; ++loggingRequest.current; }
+  };
   const remember = (next: Session | null) => {
     ++sessionRequest.current;
     setSession(next);
@@ -78,7 +91,7 @@ export function FixAndTest({ game }: { game: Game }) {
   const diagnose = () => run(async () => {
     setPlan(null); setApproved(false); setMessage('');
     try {
-      setLogging(await invoke<LoggingStatus>('prepare_game_logging', { appId: game.appId, libraryPath: game.libraryPath, confirmed: true }));
+      await updateLogging(() => invoke<LoggingStatus>('prepare_game_logging', { appId: game.appId, libraryPath: game.libraryPath, confirmed: true }));
     } catch (e) {
       setLogging({state:'needs-attention',message:`Automatic log setup unavailable: ${String(e)}. Existing Steam settings are preserved.`,backupPath:null,canRestore:false});
     }
@@ -114,7 +127,7 @@ export function FixAndTest({ game }: { game: Game }) {
     {logging && <div className="pm-auto-message" role="status"><p>{logging.message}</p>{logging.backupPath && <p>Launch-options backup: <code>{logging.backupPath}</code></p>}
       {logging.canRestore && <button disabled={busy} className="pm-button pm-button-secondary" onClick={() => void run(async () => {
         if (!window.confirm('Close Steam first. Restore this game’s launch options from before automatic log setup?')) return;
-        setLogging(await invoke<LoggingStatus>('restore_game_logging', { appId: game.appId, libraryPath: game.libraryPath, confirmed: true }));
+        await updateLogging(() => invoke<LoggingStatus>('restore_game_logging', { appId: game.appId, libraryPath: game.libraryPath, confirmed: true }));
       })}>Restore previous log settings</button>}
     </div>}
     {plan && !session && <div className="pm-advisor-step"><div><strong>{plan.canApply ? `Try ${plan.tool}` : 'No supported automatic fix yet'}</strong><p>{plan.reason}</p>

@@ -38,7 +38,7 @@ For manual publication, use either method:
 1. Push a stable tag matching the application version, such as `v0.6.7`.
 2. Open **Actions → Signed Linux release → Run workflow**, select `main`, and enter the matching tag.
 
-The manual workflow creates the tag at its source commit after verification. It stops if that tag already exists. Keep published release tags unchanged.
+The workflow creates the tag at its validated source commit after verification. A retry may reuse an existing tag only when it resolves to that exact commit, including annotated tags. A tag pointing to different source is rejected and never moved. Keep published release tags unchanged.
 
 The workflow:
 

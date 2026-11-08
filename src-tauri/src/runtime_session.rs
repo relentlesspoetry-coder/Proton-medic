@@ -40,6 +40,7 @@ fn capture(mut input: impl Read + AsRawFd, output: File, stop: Arc<AtomicBool>) 
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 { return Err(io::Error::last_os_error()); }
     let mut tail = Tail::new(output); let mut buf = [0; 8192]; let mut ending = None;
+    let mut write_error = None;
     loop {
         if stop.load(Ordering::Acquire) {
             let at = ending.get_or_insert_with(Instant::now);
@@ -47,7 +48,14 @@ fn capture(mut input: impl Read + AsRawFd, output: File, stop: Arc<AtomicBool>) 
         }
         match input.read(&mut buf) {
             Ok(0) => break,
-            Ok(n) => tail.write(&buf[..n])?,
+            Ok(n) => {
+                // A failed log must not close the runtime's pipe and cause
+                // SIGPIPE/EPIPE in a game or installer. Keep draining its
+                // output, but retain the error for the completion receipt.
+                if write_error.is_none() {
+                    if let Err(error) = tail.write(&buf[..n]) { write_error = Some(error); }
+                }
+            },
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 if ending.is_some() { break; }
@@ -56,7 +64,7 @@ fn capture(mut input: impl Read + AsRawFd, output: File, stop: Arc<AtomicBool>) 
             Err(e) => return Err(e),
         }
     }
-    tail.finish()
+    match write_error { Some(error) => Err(error), None => tail.finish() }
 }
 #[derive(Clone)]
 pub(crate) struct Process { pub(crate) pid: u32, pub(crate) parent: u32, pub(crate) group: u32, pub(crate) start: u64, pub(crate) state: char, pub(crate) metrics: Option<(u64,u64)> }
@@ -144,6 +152,16 @@ pub fn supervise_monitored(mut child: Child, out: ChildStdout, err: ChildStderr,
         let out = child.stdout.take().unwrap(); let at = Instant::now();
         capture(out, tempfile("abandoned"), Arc::new(AtomicBool::new(true))).unwrap();
         assert!(at.elapsed() < Duration::from_millis(500)); assert!(child.wait().unwrap().success());
+    }
+    #[test] fn log_write_failure_drains_output_without_aborting_runtime() {
+        let mut child = Command::new("sh")
+            .args(["-c", "i=0; while [ \"$i\" -lt 32768 ]; do printf 'runtime output continues\\n' || exit 23; i=$((i+1)); done"])
+            .process_group(0).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let out = child.stdout.take().unwrap(); let err = child.stderr.take().unwrap();
+        let full = File::options().read(true).write(true).open("/dev/full").unwrap();
+        let (status, captured) = supervise(child, out, err, full, tempfile("write-failed-stderr"));
+        assert!(status.unwrap().success(), "A diagnostic disk failure must not abort the runtime");
+        assert!(!captured, "The completion receipt must report lost log output");
     }
     #[test] fn pid_reuse_does_not_keep_an_unrelated_process_in_the_family() {
         let mut known = HashMap::from([(12, 1)]);

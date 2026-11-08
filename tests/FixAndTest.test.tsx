@@ -157,3 +157,68 @@ it('ignores a read started before a session mutation while that mutation is pend
   await act(async () => { completion.resolve(null); });
   await screen.findByRole('button', { name: 'Diagnose this game' });
 });
+
+
+it.each(['old status', 'late failure'])('keeps the new logging receipt when the initial read returns %s', async outcome => {
+  let resolveInitial!: (value: unknown) => void;
+  let rejectInitial!: (reason: unknown) => void;
+  const initial = new Promise((resolve, reject) => { resolveInitial = resolve; rejectInitial = reject; });
+  invoke.mockImplementation((command: string) => {
+    if (command === 'get_game_logging') return initial;
+    if (command === 'list_fix_sessions') return Promise.resolve([]);
+    if (command === 'prepare_game_logging') return Promise.resolve(logging);
+    if (command === 'plan_game_fix') return Promise.resolve(plan);
+    return Promise.resolve(null);
+  });
+  await preview();
+  expect(screen.getByRole('button', { name: 'Restore previous log settings' })).toBeTruthy();
+  await act(async () => { if (outcome === 'old status') resolveInitial(null); else rejectInitial('Old lookup failed'); });
+  expect(screen.getByRole('button', { name: 'Restore previous log settings' })).toBeTruthy();
+  expect(screen.getByText('/fixture/log-backup')).toBeTruthy();
+  expect(screen.queryByText('Old lookup failed')).toBeNull();
+});
+
+it('does not replace restored logging settings with an older initial receipt', async () => {
+  const initial = deferred<typeof logging>();
+  invoke.mockImplementation((command: string) => {
+    if (command === 'get_game_logging') return initial.promise;
+    if (command === 'list_fix_sessions') return Promise.resolve([]);
+    if (command === 'prepare_game_logging') return Promise.resolve(logging);
+    if (command === 'restore_game_logging') return Promise.resolve({ state: 'restored', message: 'Restored latest settings', backupPath: null, canRestore: false });
+    if (command === 'plan_game_fix') return Promise.resolve(plan);
+    return Promise.resolve(null);
+  });
+  await preview();
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Restore previous log settings' }));
+  await screen.findByText('Restored latest settings');
+  await act(async () => { initial.resolve(logging); });
+  expect(screen.getByText('Restored latest settings')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Restore previous log settings' })).toBeNull();
+});
+
+
+it('ignores a queued poll that finishes after a newer diagnosis', async () => {
+  vi.useFakeTimers();
+  try {
+    const poll = deferred<unknown>();
+    let reads = 0;
+    invoke.mockImplementation((command: string) => {
+      if (command === 'get_game_logging') return ++reads === 1
+        ? Promise.resolve({ state: 'waiting-for-steam', message: 'Old queued setup', backupPath: null, canRestore: false }) : poll.promise;
+      if (command === 'list_fix_sessions') return Promise.resolve([]);
+      if (command === 'prepare_game_logging') return Promise.resolve(logging);
+      if (command === 'plan_game_fix') return Promise.resolve(plan);
+      return Promise.resolve(null);
+    });
+    render(<FixAndTest game={game}/>);
+    await act(async () => {});
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(reads).toBe(2);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Diagnose this game' })); });
+    expect(screen.getByRole('button', { name: 'Restore previous log settings' })).toBeTruthy();
+    await act(async () => { poll.resolve({ state: 'waiting-for-steam', message: 'Stale queued setup', backupPath: null, canRestore: false }); });
+    expect(screen.queryByText('Stale queued setup')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Restore previous log settings' })).toBeTruthy();
+  } finally { vi.useRealTimers(); }
+});

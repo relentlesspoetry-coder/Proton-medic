@@ -102,8 +102,8 @@ async fn recommend_proton() -> Result<advisor::AdvisorReport, String> {
 }
 
 #[tauri::command]
-async fn auto_select_proton(app_id: String, library_path: String, confirmed: bool) -> Result<auto_select::AutoSelection, String> {
-    tauri::async_runtime::spawn_blocking(move || { let _activity = app_update::activity()?; auto_select::select(app_id, library_path, confirmed) })
+async fn auto_select_proton(app_id: String, library_path: String, expected_tool: String, confirmed: bool) -> Result<auto_select::AutoSelection, String> {
+    tauri::async_runtime::spawn_blocking(move || { let _activity = app_update::activity()?; auto_select::select(app_id, library_path, expected_tool, confirmed) })
         .await.map_err(|e| format!("Auto-select worker failed: {e}"))?
 }
 

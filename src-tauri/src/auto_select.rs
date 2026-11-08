@@ -233,8 +233,8 @@ pub(crate) fn config_for_library(scan:&scanner::ScanReport,library:&str)->Result
     Ok(path)
 }
 
-pub fn select(app_id:String,library_path:String,confirmed:bool)->Result<AutoSelection,String>{
-    select_tracked(app_id, library_path, confirmed, None).map(|(result, _)| result)
+pub fn select(app_id:String,library_path:String,expected_tool:String,confirmed:bool)->Result<AutoSelection,String>{
+    select_tracked(app_id, library_path, confirmed, Some(&expected_tool)).map(|(result, _)| result)
 }
 
 fn allowed_tool_roots(config: &Path) -> Result<Vec<PathBuf>, String> {
@@ -333,6 +333,13 @@ fn rollback_text(undo: &ConfigUndo, current: &[u8]) -> Result<String, String> {
     Ok(restored)
 }
 
+fn require_expected_tool(expected_tool: Option<&str>, requested: &str) -> Result<(), String> {
+    if expected_tool.is_some_and(|expected| expected != requested) {
+        return Err("Recommendation changed before the write. Diagnose again.".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn select_tracked(app_id:String,library_path:String,confirmed:bool, expected_tool: Option<&str>)->Result<(AutoSelection, Option<ConfigUndo>),String>{
     select_tracked_with_control(app_id,library_path,confirmed,expected_tool,None)
 }
@@ -358,9 +365,7 @@ pub(crate) fn select_tracked_with_control(app_id:String,library_path:String,conf
         return Err("Proton log is old or has an invalid timestamp. Create a new log before auto-selecting".into());
     }
     let requested=rec.suggested_tool.as_deref().ok_or("No suitable Proton version installed")?;
-    if expected_tool.is_some_and(|expected| expected != requested) {
-        return Err("Recommendation changed before the write. Diagnose again.".into());
-    }
+    require_expected_tool(expected_tool, requested)?;
     let available = tools_for_library(&scan, &library_path)?;
     let selected=available.iter().find(|t|t.name==requested)
         .ok_or("Recommended Proton is not installed for this game’s Steam installation")?;
@@ -384,6 +389,12 @@ pub(crate) fn select_tracked_with_control(app_id:String,library_path:String,conf
 
 #[cfg(test)] mod tests {
     use super::*;
+    #[test] fn displayed_recommendation_must_match_fresh_candidate() {
+        assert!(require_expected_tool(Some("Proton Experimental"), "Proton Experimental").is_ok());
+        assert!(require_expected_tool(Some("Proton Experimental"), "Proton 9.0").unwrap_err().contains("Recommendation changed"));
+        assert!(require_expected_tool(Some(""), "Proton 9.0").is_err());
+        assert!(require_expected_tool(None, "Proton 9.0").is_ok());
+    }
     const CONFIG:&str=r#""InstallConfigStore" { "Software" { "Valve" { "Steam" { "CompatToolMapping" {
         "0" { "name" "proton_experimental" } // user default
         "123" { "name" "proton_9" "config" "" "priority" "250" }

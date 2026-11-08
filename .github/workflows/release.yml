@@ -126,7 +126,5 @@ jobs:
               exit 0
             fi
           fi
-          if [ "$RELEASE_EVENT" != push ]; then
-            gh api "repos/$RELEASE_REPOSITORY/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$RELEASE_SHA" > /dev/null
-          fi
+          python3 scripts/release_tag.py
           gh release create "$RELEASE_TAG" release/* --verify-tag --title "Proton Medic $RELEASE_TAG" --notes-file "RELEASE-$RELEASE_TAG.md" --latest

@@ -60,7 +60,7 @@ it('does not show a late failure in another game with the same app ID', async ()
   invoke.mockImplementation((command: string, args: unknown) => command === 'auto_select_proton'
     ? new Promise((_, reject) => { rejectSelection = reject; }) : original(command, args));
   render(<App/>); await openGame('Alpha'); apply();
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith('auto_select_proton', { appId: '123', libraryPath: '/fixture/Alpha', confirmed: true }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('auto_select_proton', { appId: '123', libraryPath: '/fixture/Alpha', expectedTool: 'GE-Proton', confirmed: true }));
   back();
   fireEvent.click(await screen.findByRole('button', { name: 'Game settings for Beta (Steam)' }));
   fireEvent.click(screen.getByRole('tab', { name: 'Proton', exact: true }));
@@ -83,4 +83,14 @@ it('clears old feedback while retrying a selection', async () => {
   expect((screen.getByRole('button', { name: 'Selecting Proton…' }) as HTMLButtonElement).disabled).toBe(true);
   await act(async () => finish(selection('Alpha')));
   expect(screen.getByText(successMessage)).toBeTruthy();
+});
+
+it('submits the displayed Proton candidate and surfaces a changed recommendation without retrying', async () => {
+  const original = invoke.getMockImplementation()!;
+  invoke.mockImplementation((command: string, args: unknown) => command === 'auto_select_proton'
+    ? Promise.reject('Recommendation changed before the write. Diagnose again.') : original(command, args));
+  render(<App/>); await openGame('Alpha'); apply();
+  await screen.findByText('Could not apply the selection: Recommendation changed before the write. Diagnose again.');
+  const writes = invoke.mock.calls.filter(([command]) => command === 'auto_select_proton');
+  expect(writes).toEqual([['auto_select_proton', { appId: '123', libraryPath: '/fixture/Alpha', expectedTool: 'GE-Proton', confirmed: true }]]);
 });
