@@ -97,7 +97,7 @@ const SIGNATURES: &[Signature] = &[
     Signature {
         code: "vulkan-init", severity: "error", title: "Vulkan initialization failure detected",
         description: "The log contains a Vulkan initialization or device-creation error. The root cause is not yet proven.",
-        recommendation: "Run the Vulkan system probe, check the selected GPU and the 32-bit/64-bit Vulkan driver packages, then retry the game.",
+        recommendation: "Run the Vulkan system probe, check the selected GPU and the 32-bit and 64-bit Vulkan driver packages, then retry the game.",
         patterns: &["failed to create vulkan instance", "failed to initialize vulkan", "vk_error_incompatible_driver", "vk_error_initialization_failed", "no vulkan devices found", "vulkan: failed to"],
     },
     Signature {
@@ -133,7 +133,7 @@ const SIGNATURES: &[Signature] = &[
     Signature {
         code: "anticheat", severity: "info", title: "Anti-cheat reference found",
         description: "Anti-cheat components are mentioned in the log. This is not evidence that anti-cheat caused a failure.",
-        recommendation: "Check the game's official Linux/Proton anti-cheat support before attempting any compatibility changes.",
+        recommendation: "Check the game's official Linux and Proton anti-cheat support before attempting any compatibility changes.",
         patterns: &["easyanticheat", "easy anti-cheat", "battleye", "battl eye"],
     },
 ];

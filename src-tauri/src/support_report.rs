@@ -138,6 +138,18 @@ pub fn save(app: tauri::AppHandle, token: u64, confirmed: bool) -> Result<Option
         let diagnostic=diagnostics::GameDiagnostics{app_id:"123".into(),library_path:game.library_path.clone(),log_path:Some("/home/Bless/log".into()),log_size:Some(123),modified_unix_seconds:None,truncated:true,status:"review".into(),findings:vec![diagnostics::Finding{code:"memory".into(),severity:"warning".into(),title:"Memory allocation failure".into(),description:"unused".into(),recommendation:"Check available memory".into(),evidence:vec!["password=secret".into()]}],notes:vec!["token=private".into()]};
         let mut value=steam_game(&game,Some(&diagnostic));redact(&mut value);let text=value.to_string();for secret in ["Bless","private","secret","password","token"]{assert!(!text.contains(secret));}assert_eq!(value["diagnostics"]["findings"][0]["code"],"memory");assert_eq!(value["diagnostics"]["truncated"],true);
     }
+    #[test] fn redacted_report_preserves_every_static_diagnostic_recommendation() {
+        let dir=std::env::temp_dir().join(format!("pm-report-guidance-{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));std::fs::create_dir(&dir).unwrap();
+        let log=dir.join("steam-123.log");std::fs::write(&log,"Easy Anti-Cheat is not supported on this platform\nvk_error_initialization_failed\nvk_error_device_lost\nerror while loading shared libraries\nwine: Unhandled exception\nstd::bad_alloc\nstatus_dll_not_found\nEasyAntiCheat initialized\npassword=fixture-secret\n").unwrap();
+        let game=crate::scanner::Game{app_id:"123".into(),name:"Game".into(),library_path:"/home/private-user/Library".into(),install_path:"/home/private-user/game".into(),install_path_exists:true,manifest_path:"/home/private-user/manifest".into(),prefix_path:"/home/private-user/pfx".into(),prefix_exists:true,build_id:None,configured_tool:Some("Proton".into()),last_played_at:None};
+        let diagnostic=diagnostics::analyze_exact_log(&log,&game.app_id,&game.library_path);assert_eq!(diagnostic.findings.len(),8);
+        let mut value=steam_game(&game,Some(&diagnostic));redact(&mut value);
+        for (finding,projected) in diagnostic.findings.iter().zip(value["diagnostics"]["findings"].as_array().unwrap()) {
+            assert_eq!(projected["recommendation"].as_str(),Some(finding.recommendation.as_str()),"{} guidance was redacted",finding.code);
+        }
+        assert_eq!(value["installPath"],"[redacted path]");assert_eq!(value["diagnostics"]["logPath"],"[redacted path]");
+        let text=value.to_string();assert!(!text.contains("private-user"));assert!(!text.contains("fixture-secret"));std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test] fn history_projection_excludes_boot_identity_and_freeform_errors() {
         let entry:windows_games::history::Entry=serde_json::from_value(json!({"id":"private-id","kind":"game","runtime":"Wine","startedAt":123,"endedAt":456,"state":"process-failed","exitCode":7,"message":"password=secret","summaries":["Memory allocation failure"],"partialLogs":true,"bootId":"private-boot"})).unwrap();
         let value=launch_history(windows_games::history::History{entries:vec![entry],warnings:vec!["/home/Bless/private".into()]});let text=value.to_string();assert!(!text.contains("private"));assert!(!text.contains("secret"));assert_eq!(value["unreadableRecordWarnings"],1);assert_eq!(value["entries"][0]["exitCode"],7);
