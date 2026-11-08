@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Game } from './WindowsGames';
 interface Sample { runId:string; capturedAt:number; cpuPercent:number|null; memoryBytes:number; peakMemoryBytes:number; processCount:number; partial:boolean }
 interface Report { status:string; sample:Sample|null; message:string }
+const SAMPLE_MAX_AGE_MS=4000;
+const staleReport:Report={status:'stale',sample:null,message:'Waiting for a fresh resource reading…'};
 const memory=(bytes:number)=>bytes>=1024**3?`${(bytes/1024**3).toFixed(2)} GiB`:`${(bytes/1024**2).toFixed(1)} MiB`;
 export function ResourceMonitor({game,enabled,onToggle}:{game:Game;enabled:boolean;onToggle:(enabled:boolean)=>void}) {
   const [visible,setVisible]=useState(!document.hidden);
@@ -20,9 +22,15 @@ export function ResourceMonitor({game,enabled,onToggle}:{game:Game;enabled:boole
       try{
         const result=await invoke<Report>('sample_windows_resources',{id:game.id,runId});
         if(stopped)return;
-        clearTimeout(staleTimer);setReport(result);setError('');
-        if(result.status==='live')staleTimer=setTimeout(()=>{if(!stopped)setReport({status:'stale',sample:null,message:'Waiting for a fresh resource reading…'});},4000);
-        if(result.status==='live'&&result.sample){const sample=result.sample;setPoints(old=>old[old.length-1]?.capturedAt===sample.capturedAt?old:[...old,sample].slice(-60));}
+        const sample=result.status==='live'?result.sample:null;
+        const age=sample?Date.now()-sample.capturedAt:NaN;
+        const fresh=sample?.runId===runId&&Number.isFinite(sample.capturedAt)&&age>=0&&age<SAMPLE_MAX_AGE_MS;
+        clearTimeout(staleTimer);setReport(result.status==='live'&&!fresh?staleReport:result);setError('');
+        if(fresh&&sample){
+          // Keep the capture's original deadline, including for repeated or delayed replies.
+          staleTimer=setTimeout(()=>{if(!stopped)setReport(staleReport);},SAMPLE_MAX_AGE_MS-age);
+          setPoints(old=>old[old.length-1]?.capturedAt===sample.capturedAt?old:[...old,sample].slice(-60));
+        }
         if(result.status==='inactive')return;
       }catch(error){if(stopped)return;setError(String(error));setReport(null);}
       if(!stopped)timer=setTimeout(()=>void poll(),2000);

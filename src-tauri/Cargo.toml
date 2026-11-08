@@ -1,6 +1,6 @@
 [package]
 name = "proton-medic"
-version = "0.6.50"
+version = "0.6.51"
 description = "Linux Steam diagnostics with game launch observation and safe repair with rollback"
 authors = ["Proton Medic Contributors"]
 edition = "2021"
@@ -27,6 +27,7 @@ tar = "=0.4.46"
 flate2 = "=1.1.10"
 base64 = "=0.22.1"
 ico = "=0.6.0"
+png = "=0.18.1"
 jpeg-decoder = { version = "=0.3.2", default-features = false }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }

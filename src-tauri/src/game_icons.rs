@@ -2,6 +2,10 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use std::{fs::{self, File}, io::{Cursor, Read, Seek, SeekFrom}, path::{Path, PathBuf}};
 const MAX_ICON: usize = 1024 * 1024;
+// Steam may supply header artwork, not just 256-pixel executable icons.
+const MAX_ARTWORK_SIDE: u32 = 4096;
+const MAX_ARTWORK_PIXELS: u64 = 16_000_000;
+const MAX_DECODED_BYTES: usize = MAX_ARTWORK_PIXELS as usize * 4;
 fn u16le(b:&[u8],at:usize)->Option<u16>{Some(u16::from_le_bytes(b.get(at..at+2)?.try_into().ok()?))}
 fn u32le(b:&[u8],at:usize)->Option<u32>{Some(u32::from_le_bytes(b.get(at..at+4)?.try_into().ok()?))}
 pub fn data_uri(bytes:&[u8],mime:&str)->String{format!("data:{mime};base64,{}",STANDARD.encode(bytes))}
@@ -99,12 +103,41 @@ pub fn executable_png(path:&Path)->Option<Vec<u8>>{
     }
     None
 }
-fn local_image(path:&Path)->Option<String>{
+fn artwork_dimensions(width:u32,height:u32)->bool{
+    (1..=MAX_ARTWORK_SIDE).contains(&width) && (1..=MAX_ARTWORK_SIDE).contains(&height)
+        && u64::from(width)*u64::from(height)<=MAX_ARTWORK_PIXELS
+}
+fn image_mime(bytes:&[u8])->Option<&'static str>{
+    if bytes.len()>MAX_ICON{return None;}
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n"){
+        let mut decoder=png::Decoder::new_with_limits(Cursor::new(bytes),png::Limits{bytes:MAX_DECODED_BYTES});
+        // Validate every supported PNG color/bit depth without expanding 16-bit samples.
+        // The original encoded bytes are preserved for display.
+        decoder.set_transformations(png::Transformations::STRIP_16);
+        let mut reader=decoder.read_info().ok()?;
+        if !artwork_dimensions(reader.info().width,reader.info().height){return None;}
+        let size=reader.output_buffer_size()?;if size>MAX_DECODED_BYTES{return None;}
+        reader.next_frame(&mut vec![0;size]).ok()?;
+        reader.finish().ok()?;
+        Some("image/png")
+    }else if bytes.starts_with(b"\xff\xd8\xff"){
+        let mut decoder=jpeg_decoder::Decoder::new(Cursor::new(bytes));
+        decoder.set_max_decoding_buffer_size(MAX_DECODED_BYTES);
+        decoder.read_info().ok()?;let info=decoder.info()?;
+        if !artwork_dimensions(u32::from(info.width),u32::from(info.height)){return None;}
+        decoder.decode().ok()?;
+        Some("image/jpeg")
+    }else{None}
+}
+pub(crate) fn read_image(path:&Path)->Option<(Vec<u8>,&'static str)>{
     let mut file=open_regular(path)?;let meta=file.metadata().ok()?;
     if !meta.is_file() || meta.len()>MAX_ICON as u64{return None;}
     let mut bytes=vec![];file.by_ref().take(MAX_ICON as u64+1).read_to_end(&mut bytes).ok()?;
-    let mime=if bytes.starts_with(b"\x89PNG\r\n\x1a\n"){"image/png"}else if bytes.starts_with(b"\xff\xd8\xff"){"image/jpeg"}else{return None};
-    Some(data_uri(&bytes,mime))
+    let mime=image_mime(&bytes)?;
+    Some((bytes,mime))
+}
+fn local_image(path:&Path)->Option<String>{
+    let (bytes,mime)=read_image(path)?;Some(data_uri(&bytes,mime))
 }
 fn steam_art(root:&Path,app_id:&str)->Option<String>{
     let cache=root.join("appcache/librarycache");
@@ -181,10 +214,62 @@ mod tests{
         let f=Fixture::new();let path=f.0.join("large.exe");fs::write(&path,pe(&png(),true)).unwrap();File::options().write(true).open(&path).unwrap().set_len(1024*1024*1024).unwrap();assert!(executable_png(&path).is_some());
     }
     #[test] fn reads_steam_cached_icons_without_network(){
-        let f=Fixture::new();let folder=f.0.join("appcache/librarycache/123");fs::create_dir_all(&folder).unwrap();fs::write(folder.join("a".repeat(40)+".jpg"),b"\xff\xd8\xfffixture").unwrap();
-        assert!(steam_art(&f.0,"123").unwrap().starts_with("data:image/jpeg;base64,"));assert!(steam_art(&f.0,"999").is_none());
+        let f=Fixture::new();let folder=f.0.join("appcache/librarycache/123");fs::create_dir_all(&folder).unwrap();fs::write(folder.join("a".repeat(40)+".png"),png()).unwrap();
+        assert!(steam_art(&f.0,"123").unwrap().starts_with("data:image/png;base64,"));assert!(steam_art(&f.0,"999").is_none());
     }
     #[test] fn malformed_images_and_missing_executables_have_a_fallback(){
         let f=Fixture::new();let file=f.0.join("bad.exe");fs::write(&file,b"not an executable").unwrap();assert!(executable_png(&file).is_none());assert!(executable_png(&f.0.join("missing.exe")).is_none());assert!(local_image(&file).is_none());
+    }
+
+    fn artwork_png(width:u32,height:u32,color:png::ColorType,depth:png::BitDepth)->Vec<u8>{
+        let mut bytes=vec![];
+        let mut encoder=png::Encoder::new(&mut bytes,width,height);encoder.set_color(color);encoder.set_depth(depth);
+        if color==png::ColorType::Indexed{encoder.set_palette(vec![20,60,120,220,160,100]);}
+        let row=(width as usize*color.samples()*depth as usize).div_ceil(8);
+        let mut writer=encoder.write_header().unwrap();writer.write_image_data(&vec![0;row*height as usize]).unwrap();writer.finish().unwrap();bytes
+    }
+    #[test] fn validates_png_color_depths_and_header_artwork(){
+        for depth in [png::BitDepth::One,png::BitDepth::Two,png::BitDepth::Four,png::BitDepth::Eight]{
+            for color in [png::ColorType::Indexed,png::ColorType::Grayscale]{
+                let bytes=artwork_png(9,3,color,depth);assert_eq!(image_mime(&bytes),Some("image/png"));
+            }
+        }
+        for color in [png::ColorType::Grayscale,png::ColorType::GrayscaleAlpha,png::ColorType::Rgb,png::ColorType::Rgba]{
+            let bytes=artwork_png(9,3,color,png::BitDepth::Sixteen);assert_eq!(image_mime(&bytes),Some("image/png"));
+        }
+        let f=Fixture::new();let folder=f.0.join("appcache/librarycache/123");fs::create_dir_all(&folder).unwrap();
+        let header=artwork_png(640,360,png::ColorType::Rgb,png::BitDepth::Eight);fs::write(folder.join("header.jpg"),&header).unwrap();
+        assert_eq!(steam_art(&f.0,"123"),Some(data_uri(&header,"image/png")));
+    }
+    #[test] fn validates_baseline_and_progressive_jpeg_artwork(){
+        // Valid 300 x 150 grayscale JPEGs, including header art wider than PE icons.
+        for encoded in ["/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCACWASwBAREA/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAA/AIYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//9k=","/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wgALCACWASwBAREA/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/2gAIAQEAAAABhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/EABQQAQAAAAAAAAAAAAAAAAAAAJD/2gAIAQEAAQUCNL//xAAUEAEAAAAAAAAAAAAAAAAAAACQ/9oACAEBAAY/AjS//8QAFBABAAAAAAAAAAAAAAAAAAAAkP/aAAgBAQABPyE0v//aAAgBAQAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//8QAFBABAAAAAAAAAAAAAAAAAAAAkP/aAAgBAQABPxA0v//Z"] {
+            let bytes=STANDARD.decode(encoded).unwrap();assert_eq!(image_mime(&bytes),Some("image/jpeg"));
+            assert!(image_mime(&bytes[..bytes.len()/2]).is_none());
+        }
+        assert!(image_mime(b"\xff\xd8\xfftruncated JPEG").is_none());
+    }
+    #[test] fn rejects_corrupt_oversized_and_excessive_dimension_artwork(){
+        let bytes=png();assert!(image_mime(&bytes[..bytes.len()-1]).is_none());
+        let mut corrupt=bytes.clone();let idat=corrupt.windows(4).position(|p|p==b"IDAT").unwrap();corrupt[idat+4]^=0xff;
+        assert!(image_mime(&corrupt).is_none());
+        let mut oversized=bytes;oversized.resize(MAX_ICON+1,0);assert!(image_mime(&oversized).is_none());
+        let f=Fixture::new();let path=f.0.join("oversized.png");fs::write(&path,oversized).unwrap();assert!(read_image(&path).is_none());
+        for (w,h) in [(MAX_ARTWORK_SIDE+1,1),(1,MAX_ARTWORK_SIDE+1)]{
+            assert!(image_mime(&artwork_png(w,h,png::ColorType::Grayscale,png::BitDepth::One)).is_none());
+        }
+        // A compact, valid low-bit-depth image must still obey the decoded pixel cap.
+        let too_many_pixels=artwork_png(4096,3907,png::ColorType::Grayscale,png::BitDepth::One);
+        assert!(too_many_pixels.len()<MAX_ICON);assert!(image_mime(&too_many_pixels).is_none());
+        assert!(artwork_dimensions(4096,3906));assert!(!artwork_dimensions(4096,3907));
+        assert!(!artwork_dimensions(0,1));assert!(!artwork_dimensions(1,0));assert!(!artwork_dimensions(u32::MAX,u32::MAX));
+    }
+    #[test] fn corrupt_steam_candidates_do_not_mask_valid_fallbacks(){
+        let f=Fixture::new();let cache=f.0.join("appcache/librarycache");fs::create_dir_all(&cache).unwrap();let good=png();
+        fs::write(cache.join("123_icon.jpg"),b"\xff\xd8\xfftruncated JPEG").unwrap();fs::write(cache.join("123_icon.png"),&good).unwrap();
+        assert_eq!(steam_art(&f.0,"123"),Some(data_uri(&good,"image/png")));
+        fs::write(cache.join("123_icon.png"),&good[..good.len()/2]).unwrap();let folder=cache.join("123");fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("a".repeat(40)+".png"),b"\x89PNG\r\n\x1a\n").unwrap();fs::write(folder.join("b".repeat(40)+".png"),&good).unwrap();
+        assert_eq!(steam_art(&f.0,"123"),Some(data_uri(&good,"image/png")));
     }
 }

@@ -511,7 +511,7 @@ fn icon_path_in(root:&Path,id:&str)->Option<PathBuf>{
     let cache=dir.join("game-icon-source.json");let icon=dir.join("game-icon.png");
     if regular(&cache,65536).is_ok(){if let Ok(previous)=serde_json::from_slice::<IconSource>(&fs::read(&cache).ok()?){
         source.found=previous.found;
-        if source==previous{if !previous.found{return None;}if regular(&icon,1024*1024).is_ok(){return Some(icon);}}
+        if source==previous{if !previous.found{return None;}if crate::game_icons::read_image(&icon).is_some_and(|(_,mime)|mime=="image/png"){return Some(icon);}}
     }}
     source.found=false;
     if let Some(png)=crate::game_icons::executable_png(path){
@@ -828,6 +828,37 @@ mod tests{
     #[test] fn changing_list_membership_requires_explicit_consent(){
         assert!(set_hidden("123".into(),true,false).unwrap_err().contains("Approve"));
         assert!(set_hidden("123".into(),false,false).unwrap_err().contains("Approve"));
+    }
+
+    fn pe_with_icon(path:&Path){
+        let mut image=vec![];ico::IconImage::from_rgba_data(2,2,[100,180,240,255].repeat(4)).write_png(&mut image).unwrap();
+        let put16=|b:&mut[u8],p:usize,v:u16|b[p..p+2].copy_from_slice(&v.to_le_bytes());
+        let put32=|b:&mut[u8],p:usize,v:u32|b[p..p+4].copy_from_slice(&v.to_le_bytes());
+        let mut b=vec![0;1024];b[..2].copy_from_slice(b"MZ");put32(&mut b,60,128);b[128..132].copy_from_slice(b"PE\0\0");
+        put16(&mut b,132,0x8664);put16(&mut b,134,1);put16(&mut b,148,240);put16(&mut b,152,0x20b);put32(&mut b,260,16);put32(&mut b,280,0x1000);put32(&mut b,284,512);
+        put32(&mut b,404,0x1000);put32(&mut b,408,512);put32(&mut b,412,512);
+        let r=&mut b[512..];put16(r,14,2);put32(r,16,3);put32(r,20,0x8000_0020);put32(r,24,14);put32(r,28,0x8000_0050);
+        for (dir,target) in [(32,56),(80,104)]{put16(r,dir+14,1);put32(r,dir+16,1);put32(r,dir+20,0x8000_0000|target as u32);}
+        for (dir,target) in [(56,128),(104,144)]{put16(r,dir+14,1);put32(r,dir+16,1033);put32(r,dir+20,target as u32);}
+        let group=160+image.len();put32(r,128,0x1000+160);put32(r,132,image.len() as u32);put32(r,144,0x1000+group as u32);put32(r,148,20);
+        r[160..160+image.len()].copy_from_slice(&image);put16(r,group+2,1);put16(r,group+4,1);r[group+6]=2;r[group+7]=2;put16(r,group+10,1);put16(r,group+12,32);put32(r,group+14,image.len() as u32);put16(r,group+18,1);
+        fs::write(path,b).unwrap();
+    }
+    #[test] fn damaged_icon_cache_is_regenerated_from_unchanged_executable(){
+        let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let mut r=record(id);let exe=f.0.join("game.exe");pe_with_icon(&exe);r.game_exe=Some(exe.to_string_lossy().into());save(&dir,&r).unwrap();
+        let icon=icon_path_in(&f.0,id).unwrap();let good=fs::read(&icon).unwrap();assert!(crate::game_icons::read_image(&icon).is_some());
+        let source=fs::read(dir.join("game-icon-source.json")).unwrap();
+        for corrupt in [b"truncated".as_slice(),&good[..good.len()/2]]{
+            fs::write(&icon,corrupt).unwrap();assert_eq!(icon_path_in(&f.0,id),Some(icon.clone()));assert_eq!(fs::read(&icon).unwrap(),good);
+            assert_eq!(fs::read(dir.join("game-icon-source.json")).unwrap(),source);
+        }
+        // A valid cached PNG remains usable without rewriting it.
+        let before=fs::metadata(&icon).unwrap().modified().unwrap();assert_eq!(icon_path_in(&f.0,id),Some(icon.clone()));assert_eq!(fs::metadata(&icon).unwrap().modified().unwrap(),before);
+    }
+    #[test] fn icon_cache_recovery_does_not_follow_symlinks(){
+        let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let mut r=record(id);let exe=f.0.join("game.exe");pe_with_icon(&exe);r.game_exe=Some(exe.to_string_lossy().into());save(&dir,&r).unwrap();
+        let icon=icon_path_in(&f.0,id).unwrap();let target=f.0.join("keep");fs::write(&target,b"keep").unwrap();fs::remove_file(&icon).unwrap();std::os::unix::fs::symlink(&target,&icon).unwrap();
+        assert!(icon_path_in(&f.0,id).is_none());assert_eq!(fs::read(&target).unwrap(),b"keep");assert!(fs::symlink_metadata(icon).unwrap().file_type().is_symlink());
     }
     #[test] fn missing_or_changed_icon_source_does_not_reuse_a_stale_icon(){
         let f=Fixture::new();let id="123";let dir=f.0.join(id);directory(&dir,true).unwrap();let mut r=record(id);let exe=f.0.join("empty.exe");pe(&exe);r.game_exe=Some(exe.to_string_lossy().into());save(&dir,&r).unwrap();
