@@ -219,6 +219,22 @@ mod tests {
     struct Fixture(PathBuf);
     impl Fixture {fn new()->Self{let p=std::env::temp_dir().join(format!("pm-logging-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));fs::create_dir_all(&p).unwrap();Self(p)}}
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
+    #[test] fn literal_tab_options_enable_repeat_and_restore_without_false_conflicts() {
+        let f=Fixture::new();let path=f.0.join("localconfig.vdf");
+        let original=CONFIG.replace("-dx11 -windowed","-dx11\t-windowed");fs::write(&path,&original).unwrap();
+        let(status,before,after)=enable_file(&path,"123",false).unwrap();assert!(status.can_restore);
+        assert_eq!(fs::read(status.backup_path.unwrap()).unwrap(),original.as_bytes());
+        let enabled=CONFIG.replace("-dx11 -windowed","PROTON_LOG=1 %command% -dx11\\t-windowed");
+        assert_eq!(fs::read(&path).unwrap(),enabled.as_bytes());
+        assert_eq!(launch_value(&enabled,"123").unwrap(),after);
+        let(repeated,_,_)=enable_file(&path,"123",false).unwrap();assert!(repeated.backup_path.is_none());
+        let backup=restore_file(&path,"123",before.as_deref(),after.as_deref(),false).unwrap();
+        assert_eq!(fs::read(backup).unwrap(),enabled.as_bytes());
+        let restored=fs::read_to_string(&path).unwrap();
+        // VDF serialization escapes the tab, but restores the exact launch-option value.
+        assert_eq!(restored,CONFIG.replace("-dx11 -windowed","-dx11\\t-windowed"));
+        assert_eq!(launch_value(&restored,"123").unwrap().as_deref(),Some("-dx11\t-windowed"));
+    }
     #[test] fn bom_logging_enable_and_restore_preserve_original_bytes() {
         for prefix in ["\u{feff}","\u{feff}\n","\u{feff}// retained café\n"] {
             let f=Fixture::new();let path=f.0.join("localconfig.vdf");

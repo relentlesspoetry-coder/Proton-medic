@@ -46,8 +46,15 @@ pub(crate) fn tokens(s: &str) -> Result<Vec<Token>, String> {
             i+=1; let mut value=String::new(); let mut closed=false;
             while i<bytes.len() {
                 if bytes[i]==b'"' {i+=1; closed=true; break;}
-                if bytes[i]==b'\\' && i+1<bytes.len() && matches!(bytes[i+1],b'"'|b'\\') {
-                    value.push(bytes[i+1] as char);i+=2;continue;
+                if bytes[i]==b'\\' && i+1<bytes.len() {
+                    // Decode the same escapes as scanner::parse_vdf while
+                    // keeping offsets in the original, unmodified text.
+                    match bytes[i+1] {
+                        b'"'|b'\\' => {value.push(bytes[i+1] as char);i+=2;continue;}
+                        b'n' => {value.push('\n');i+=2;continue;}
+                        b't' => {value.push('\t');i+=2;continue;}
+                        _ => {} // Preserve unknown escapes.
+                    }
                 }
                 let c=s[i..].chars().next().ok_or("Invalid text encoding")?;
                 value.push(c);i+=c.len_utf8();
@@ -103,31 +110,44 @@ fn replacement_text(original: &str, app_id: &str, tool_id: &str) -> Result<(Stri
         return Ok((out,true));
     }
     let open=locations[0]; let end=matching_close(&all,open)?;
+    // Inspect every direct app entry before returning, including a no-op. A
+    // duplicate would otherwise be edited differently from the scanner and
+    // could not be rolled back safely.
+    let mut mapping=None;
     let mut i=open+1;
     while i<end {
         let key=&all[i];
         let Some(value)=all.get(i+1) else {return Err("Malformed compatibility mapping".into())};
+        let item_end=if !value.quoted && value.value=="{" {matching_close(&all,i+1)?} else {i+1};
         if key.value==app_id {
+            if mapping.is_some() {return Err("Duplicate game compatibility mapping; configuration was not changed".into());}
             if value.quoted || value.value!="{" {return Err("Unexpected game compatibility mapping value".into());}
-            let item_end=matching_close(&all,i+1)?;
-            let mut j=i+2;
-            while j<item_end {
-                let item=&all[j];
-                if item.value.eq_ignore_ascii_case("name") {
-                    let v=all.get(j+1).ok_or("Missing name value")?;
-                    if !v.quoted || v.value=="{" || v.value=="}" {return Err("Invalid compatibility name".into());}
-                    if v.value==tool_id {return Ok((original.into(),false));}
-                    let mut out=original.to_string();out.replace_range(v.start..v.end,&format!("\"{tool_id}\""));
-                    scanner::parse_vdf(&out)?;
-                    return Ok((out,true));
-                }
-                j+=1;
-            }
-            // Mapping exists, but without a name key.
-            let mut out=original.to_string();out.insert_str(all[item_end].start,&format!("\n\t\t\t\"name\" \"{tool_id}\"\n"));
-            scanner::parse_vdf(&out)?;return Ok((out,true));
+            mapping=Some((i+1,item_end));
         }
-        i=if !value.quoted && value.value=="{" {matching_close(&all,i+1)?+1} else {i+2};
+        i=item_end+1;
+    }
+    if let Some((item_open,item_end))=mapping {
+        let mut name=None;
+        let mut j=item_open+1;
+        while j<item_end {
+            let value=all.get(j+1).ok_or("Missing compatibility value")?;
+            if all[j].value.eq_ignore_ascii_case("name") {
+                if name.is_some() {return Err("Duplicate compatibility name; configuration was not changed".into());}
+                if !value.quoted || value.value=="{" || value.value=="}" {return Err("Invalid compatibility name".into());}
+                name=Some(value);
+            }
+            // Values and nested names are not direct compatibility-name keys.
+            j=if !value.quoted && value.value=="{" {matching_close(&all,j+1)?+1} else {j+2};
+        }
+        if let Some(value)=name {
+            if value.value==tool_id {return Ok((original.into(),false));}
+            let mut out=original.to_string();out.replace_range(value.start..value.end,&format!("\"{tool_id}\""));
+            scanner::parse_vdf(&out)?;
+            return Ok((out,true));
+        }
+        // Mapping exists, but without a direct name key.
+        let mut out=original.to_string();out.insert_str(all[item_end].start,&format!("\n\t\t\t\"name\" \"{tool_id}\"\n"));
+        scanner::parse_vdf(&out)?;return Ok((out,true));
     }
     let mut out=original.to_string();
     out.insert_str(all[end].start,&format!("\n\t\t\"{app_id}\" {{ \"name\" \"{tool_id}\" \"config\" \"\" \"priority\" \"250\" }}\n"));
@@ -399,6 +419,16 @@ pub(crate) fn select_tracked_with_control(app_id:String,library_path:String,conf
         "0" { "name" "proton_experimental" } // user default
         "123" { "name" "proton_9" "config" "" "priority" "250" }
     } } } } }"#;
+    #[test] fn escaped_token_values_match_scanner_without_changing_offsets() {
+        let original="\u{feff}\"Root\" { \"value\" \"café\\t雪\\n\\\"quote\\\"\\\\tail\\q\" }";
+        let parsed=tokens(original).unwrap();let value=&parsed[3];
+        assert_eq!(value.value,"café\t雪\n\"quote\"\\tail\\q");
+        assert_eq!(&original[value.start..value.end],"\"café\\t雪\\n\\\"quote\\\"\\\\tail\\q\"");
+        let tree=scanner::parse_vdf(original).unwrap();
+        assert_eq!(scanner::text_get(scanner::obj_get(&tree,"Root").unwrap(),"value"),Some(value.value.as_str()));
+        let mut updated=original.to_string();updated.replace_range(value.start..value.end,"\"new\"");
+        assert_eq!(updated,"\u{feff}\"Root\" { \"value\" \"new\" }");
+    }
     #[test] fn bom_token_offsets_preserve_original_unicode_text() {
         let original="\u{feff}\u{feff}// café\n\"Root\" { \"Name\" \"雪\" }";
         let parsed=tokens(original).unwrap();
@@ -497,6 +527,45 @@ pub(crate) fn select_tracked_with_control(app_id:String,library_path:String,conf
         let (next,changed)=replacement_text(CONFIG,"123","proton_10").unwrap();
         assert!(changed);assert!(next.contains("\"123\" { \"name\" \"proton_10\""));
         assert!(next.contains("// user default"));assert!(next.contains("\"proton_experimental\""));
+    }
+    #[test] fn duplicate_game_mappings_are_rejected_before_write_or_noop() {
+        let dir=std::env::temp_dir().join(format!("pm-duplicate-config-{}-{}",std::process::id(),unix_stamp().unwrap()));
+        fs::create_dir(&dir).unwrap();let path=dir.join("config.vdf");
+        for first in ["proton_9","proton_10"] {
+            let original=format!(r#""CompatToolMapping" {{ "123" {{ "name" "{first}" }} "456" {{ "name" "keep" }} "123" {{ "name" "proton_8" }} }}"#);
+            fs::write(&path,&original).unwrap();
+            assert!(replace_config(&path,"123","proton_10",false).unwrap_err().contains("Duplicate game"));
+            assert_eq!(fs::read_to_string(&path).unwrap(),original);
+            assert_eq!(fs::read_dir(&dir).unwrap().count(),1,"Rejected input must not create a backup or lock file");
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test] fn duplicate_direct_names_are_rejected_before_write_or_noop() {
+        let dir=std::env::temp_dir().join(format!("pm-duplicate-name-{}-{}",std::process::id(),unix_stamp().unwrap()));
+        fs::create_dir(&dir).unwrap();let path=dir.join("config.vdf");
+        for first in ["proton_9","proton_10"] {
+            let original=format!(r#""CompatToolMapping" {{ "123" {{ "name" "{first}" "metadata" {{ "name" "nested" }} "Name" "proton_8" }} }}"#);
+            fs::write(&path,&original).unwrap();
+            assert!(replace_config(&path,"123","proton_10",false).unwrap_err().contains("Duplicate compatibility name"));
+            assert_eq!(fs::read_to_string(&path).unwrap(),original);
+            assert_eq!(fs::read_dir(&dir).unwrap().count(),1);
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test] fn name_values_and_nested_names_do_not_replace_other_keys() {
+        let original=r#""CompatToolMapping" { "123" { "config" "name" "priority" "250" "metadata" { "name" "nested" "child" { "name" "deep" } } "name" "proton_9" } "456" { "name" "keep" } }"#;
+        let(next,changed)=replacement_text(original,"123","proton_10").unwrap();
+        assert!(changed);
+        assert_eq!(next,original.replace("\"name\" \"proton_9\"","\"name\" \"proton_10\""));
+        assert!(!replacement_text(&next,"123","proton_10").unwrap().1);
+    }
+    #[test] fn nested_name_does_not_prevent_adding_missing_direct_name() {
+        let original=r#""CompatToolMapping" { "123" { "metadata" { "name" "proton_10" } "config" "name" "priority" "250" } }"#;
+        let(next,changed)=replacement_text(original,"123","proton_10").unwrap();
+        assert!(changed);assert!(next.contains("\"metadata\" { \"name\" \"proton_10\" } \"config\" \"name\" \"priority\" \"250\""));
+        let parsed=scanner::parse_vdf(&next).unwrap();
+        let mappings=scanner::obj_get(&parsed,"CompatToolMapping").unwrap();
+        assert_eq!(scanner::text_get(scanner::obj_get(mappings,"123").unwrap(),"name"),Some("proton_10"));
     }
     #[test] fn inserts_missing_game_without_changing_default() {
         let (next,changed)=replacement_text(CONFIG,"456","proton_experimental").unwrap();

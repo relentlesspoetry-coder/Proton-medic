@@ -25,6 +25,19 @@ fn clean_value(value: &OsStr, appdir: &Path) -> Option<OsString> {
     if paths.is_empty() { None } else { std::env::join_paths(paths).ok() }
 }
 
+fn clean_plugin_paths(value: &OsStr, appdir: &Path) -> Option<OsString> {
+    let mut removed_bundle = false;
+    let paths: Vec<_> = std::env::split_paths(value).filter(|path| {
+        if path.starts_with(appdir) { removed_bundle = true; false } else { true }
+    }).collect();
+    // AppRun appends ':' when no host override existed. An explicit empty
+    // GST_PLUGIN_SYSTEM_PATH disables GStreamer's default plugin directories;
+    // unset that bundle-only remainder, but retain deliberate host overrides.
+    if paths.is_empty() || (removed_bundle && paths.iter().all(|path| path.as_os_str().is_empty())) {
+        None
+    } else { std::env::join_paths(paths).ok() }
+}
+
 fn clean_preload(value: &OsStr, appdir: &Path) -> Option<OsString> {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
     let mut cleaned = Vec::new();
@@ -42,15 +55,17 @@ pub fn host_environment(command: &mut Command) {
     for key in ["PATH", "LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONHOME", "PYTHONPATH",
         "XDG_DATA_DIRS", "GSETTINGS_SCHEMA_DIR", "GI_TYPELIB_PATH", "GIO_MODULE_DIR",
         "GTK_DATA_PREFIX", "GTK_EXE_PREFIX", "GTK_PATH", "GTK_IM_MODULE_FILE",
-        "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR", "GST_PLUGIN_PATH",
-        "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SCANNER", "WEBKIT_EXEC_PATH",
+        "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR", "GST_PLUGIN_PATH", "GST_PLUGIN_PATH_1_0",
+        "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0", "GST_PLUGIN_SCANNER", "GST_PLUGIN_SCANNER_1_0", "WEBKIT_EXEC_PATH",
         "WEBKIT_INJECTED_BUNDLE_PATH", "FONTCONFIG_PATH", "FONTCONFIG_FILE"] {
         let value = match command.get_envs().find(|(name, _)| *name == key) {
             Some((_, value)) => value.map(OsStr::to_owned),
             None => std::env::var_os(key),
         };
         if let Some(value) = value {
-            let cleaned = if key == "LD_PRELOAD" { clean_preload(&value, &appdir) } else { clean_value(&value, &appdir) };
+            let cleaned = if key == "LD_PRELOAD" { clean_preload(&value, &appdir) }
+                else if key.starts_with("GST_PLUGIN_") { clean_plugin_paths(&value, &appdir) }
+                else { clean_value(&value, &appdir) };
             match cleaned {
                 Some(value) => { command.env(key, value); }
                 None => { command.env_remove(key); }
@@ -84,6 +99,18 @@ mod tests {
         let dir = Path::new("/tmp/.mount_pm");
         assert_eq!(clean_value(OsStr::new("/home/deck/My Tools:/tmp/.mount_pm/bin:/usr/bin"), dir),
             Some(OsString::from("/home/deck/My Tools:/usr/bin")));
+    }
+    #[test]
+    fn media_plugin_cleanup_restores_defaults_only_for_bundle_only_overrides() {
+        let dir = Path::new("/tmp/.mount_pm");
+        assert_eq!(clean_plugin_paths(OsStr::new("/tmp/.mount_pm/usr/lib/gstreamer-1.0:"), dir), None);
+        assert_eq!(clean_plugin_paths(OsStr::new(":/tmp/.mount_pm/plugins::"), dir), None);
+        assert_eq!(clean_plugin_paths(OsStr::new(""), dir), Some(OsString::from("")));
+        assert_eq!(clean_plugin_paths(OsStr::new("/host/plugins:/tmp/.mount_pm/plugins:"), dir), Some(OsString::from("/host/plugins:")));
+        assert_eq!(clean_plugin_paths(OsStr::new("/tmp/.mount_pm-other/plugins:/tmp/.mount_pm/plugins"), dir), Some(OsString::from("/tmp/.mount_pm-other/plugins")));
+        assert_eq!(clean_plugin_paths(OsStr::new("/tmp/.mount_pm/usr/libexec/gst-plugin-scanner"), dir), None);
+        // Empty PATH entries mean the current directory and must remain untouched.
+        assert_eq!(clean_value(OsStr::new("/tmp/.mount_pm/bin:"), dir), Some(OsString::from("")));
     }
     #[test]
     fn host_paths_survive_without_bundle_paths_or_similar_prefixes() {

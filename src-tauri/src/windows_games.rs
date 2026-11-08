@@ -85,14 +85,49 @@ fn executable_in(name:&str,path:&std::ffi::OsStr)->Option<PathBuf>{
     std::env::split_paths(path).filter(|p|p.is_absolute()).find_map(|dir|executable(&dir.join(name)))
 }
 pub fn runtimes()->Vec<Runtime>{ discover_runtimes(&scanner::scan()) }
+fn native_tool_owners(scan:&scanner::ScanReport)->HashMap<PathBuf,PathBuf>{
+    let mut owners=HashMap::<PathBuf,HashMap<PathBuf,bool>>::new();
+    let discovered:HashSet<_>=scan.compatibility_tools.iter().filter_map(|tool|fs::canonicalize(&tool.path).ok()).collect();
+    for install in &scan.installations {
+        let Ok(root)=fs::canonicalize(&install.path) else{continue};
+        let mut folders=vec![root.join("compatibilitytools.d")];
+        folders.extend(scanner::libraries_from_vdf(&root,&mut vec![]).into_iter().map(|library|library.join("steamapps/common")));
+        for folder in folders {
+            let Ok(folder)=fs::canonicalize(folder) else{continue};
+            let Ok(entries)=fs::read_dir(folder) else{continue};
+            for entry in entries.flatten() {
+                // Resolve each child, not just its parent: custom tools and
+                // library entries may be symlinks to another disk. Ordinary
+                // game folders need no metadata/canonicalization on refresh.
+                let path=entry.path();
+                let tool=if discovered.contains(&path){path}else{
+                    if !entry.file_type().is_ok_and(|kind|kind.is_symlink()){continue;}
+                    let Ok(tool)=fs::canonicalize(path) else{continue};tool
+                };
+                if !discovered.contains(&tool){continue;}
+                let native=install.kind.eq_ignore_ascii_case("native");
+                owners.entry(tool).or_default().entry(root.clone())
+                    .and_modify(|was_native|*was_native &= native).or_insert(native);
+            }
+        }
+    }
+    owners.into_iter().filter_map(|(tool,owners)|{
+        if owners.len()!=1{return None;}
+        let (root,native)=owners.into_iter().next()?;
+        native.then_some((tool,root))
+    }).collect()
+}
 fn discover_runtimes(scan:&scanner::ScanReport)->Vec<Runtime>{
     let mut out=vec![];let mut seen=HashSet::new();
     if let Some(path)=std::env::var_os("PATH") {for name in ["wine","wine64"] {if let Some(p)=executable_in(name,&path){if seen.insert(p.clone()){out.push(Runtime{proton:None,id:format!("wine:{}",p.display()),name:format!("System {name}"),kind:"wine".into(),binary:p,steam:None});}}}}
     if let Some(p)=executable(Path::new("/usr/lib/wine/wine64")){if seen.insert(p.clone()){out.push(Runtime{proton:None,id:format!("wine:{}",p.display()),name:"System Wine64".into(),kind:"wine".into(),binary:p,steam:None});}}
+    let owners=native_tool_owners(scan);
     for tool in &scan.compatibility_tools {
-        let path=Path::new(&tool.path);
-        // Flatpak runtimes must run inside their container; do not execute them on the host.
-        if path.components().any(|c|c.as_os_str()==".var"){continue;}
+        let Ok(path)=fs::canonicalize(&tool.path) else{continue};
+        // Provenance follows Steam's actual roots and library mappings, not
+        // directory spelling. Flatpak and shared/unowned tools stay excluded,
+        // including managed GE versions that would otherwise use host UMU.
+        let Some(steam)=owners.get(&path) else{continue};
         let Some(binary)=executable(&path.join("proton")) else{continue};
         if path.join(".proton-medic-managed").is_file() {
             if let Some(umu)=crate::proton_manager::umu(){
@@ -100,8 +135,7 @@ fn discover_runtimes(scan:&scanner::ScanReport)->Vec<Runtime>{
             }
             continue;
         }
-        let Some(steam)=scan.installations.iter().find(|i|!i.kind.eq_ignore_ascii_case("flatpak")) else{continue};
-        if seen.insert(binary.clone()){out.push(Runtime{proton:None,id:format!("proton:{}",binary.display()),name:tool.name.clone(),kind:"proton".into(),binary,steam:Some(PathBuf::from(&steam.path))});}
+        if seen.insert(binary.clone()){out.push(Runtime{proton:None,id:format!("proton:{}",binary.display()),name:tool.name.clone(),kind:"proton".into(),binary,steam:Some(steam.clone())});}
     }
     out
 }
@@ -542,6 +576,62 @@ mod tests{
     impl Drop for Fixture{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
     fn pe(path:&Path){let mut bytes=vec![0u8;256];bytes[..2].copy_from_slice(b"MZ");bytes[60..64].copy_from_slice(&128u32.to_le_bytes());bytes[128..132].copy_from_slice(b"PE\0\0");bytes[132..134].copy_from_slice(&0x8664u16.to_le_bytes());fs::write(path,bytes).unwrap();}
     fn record(id:&str)->Record{Record{id:id.into(),name:"Fixture".into(),runtime_id:"fixture".into(),installer:String::new(),game_exe:None,state:"created".into(),exit_code:None,message:String::new(),run_id:None,boot_id:None,prefix_path:None,hidden:false,launch_arguments:vec![],working_directory:None,default_runtime_id:None,last_launched_at:None}}
+    fn proton_fixture(path:&Path){
+        fs::create_dir_all(path).unwrap();
+        fs::write(path.join("proton"),"#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(path.join("proton"),fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(path.join("compatibilitytool.vdf"),r#""compatibilitytools" { "compat_tools" { "fixture" { "install_path" "." } } }"#).unwrap();
+    }
+    #[test] fn runtime_owner_uses_the_tools_native_installation_and_canonical_aliases(){
+        let f=Fixture::new();let first=f.0.join(".local/share/Steam");let second=f.0.join(".steam/debian-installation");
+        for root in [&first,&second]{fs::create_dir_all(root.join("steamapps")).unwrap();}
+        let external=f.0.join("external/Proton Fixture");proton_fixture(&external);
+        fs::create_dir_all(second.join("compatibilitytools.d")).unwrap();
+        std::os::unix::fs::symlink(&external,second.join("compatibilitytools.d/Proton Fixture")).unwrap();
+        std::os::unix::fs::symlink(&external,second.join("compatibilitytools.d/Proton Alias")).unwrap();
+        let mut scan=scanner::scan_home(&f.0);
+        // The same installation exposed through another path is not a second owner.
+        let alias=f.0.join("native-alias");std::os::unix::fs::symlink(&second,&alias).unwrap();
+        scan.installations.push(scanner::SteamInstallation{kind:"Native".into(),path:alias.to_string_lossy().into()});
+        let runtimes=discover_runtimes(&scan);let runtime=runtimes.iter().find(|r|r.kind=="proton").unwrap();
+        assert_eq!(runtime.binary,external.join("proton"));assert_eq!(runtime.steam.as_ref(),Some(&second));
+        assert_eq!(runtimes.iter().filter(|r|r.kind=="proton").count(),1);
+        fs::create_dir_all(first.join("compatibilitytools.d")).unwrap();
+        std::os::unix::fs::symlink(&external,first.join("compatibilitytools.d/Proton Shared")).unwrap();
+        assert!(discover_runtimes(&scanner::scan_home(&f.0)).iter().all(|r|r.kind!="proton"));
+    }
+    #[test] fn runtime_owner_rejects_flatpak_external_and_shared_libraries(){
+        let f=Fixture::new();let native=f.0.join(".local/share/Steam");let flatpak=f.0.join(".var/app/com.valvesoftware.Steam/data/Steam");
+        for root in [&native,&flatpak]{fs::create_dir_all(root.join("steamapps")).unwrap();}
+        let external=f.0.join("external");let tool=external.join("steamapps/common/Proton Fixture");proton_fixture(&tool);
+        let alias=f.0.join("library-alias");std::os::unix::fs::symlink(&external,&alias).unwrap();
+        let folders=format!(r#""libraryfolders" {{ "1" {{ "path" "{}" }} }}"#,alias.display());
+        fs::write(flatpak.join("steamapps/libraryfolders.vdf"),&folders).unwrap();
+        assert!(discover_runtimes(&scanner::scan_home(&f.0)).iter().all(|r|r.kind!="proton"));
+        fs::write(native.join("steamapps/libraryfolders.vdf"),&folders).unwrap();
+        assert!(discover_runtimes(&scanner::scan_home(&f.0)).iter().all(|r|r.kind!="proton"));
+        fs::remove_file(flatpak.join("steamapps/libraryfolders.vdf")).unwrap();
+        let runtimes=discover_runtimes(&scanner::scan_home(&f.0));let runtime=runtimes.iter().find(|r|r.kind=="proton").unwrap();
+        assert_eq!(runtime.steam.as_ref(),Some(&native));
+    }
+    #[test] fn native_runtime_location_may_contain_var_but_moved_flatpak_is_not_native(){
+        let f=Fixture::new();let native=f.0.join(".local/share/Steam");let moved=f.0.join(".var/native-steam");
+        fs::create_dir_all(moved.join("steamapps")).unwrap();fs::create_dir_all(native.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&moved,&native).unwrap();let tool=moved.join("compatibilitytools.d/Proton Fixture");proton_fixture(&tool);
+        let runtimes=discover_runtimes(&scanner::scan_home(&f.0));assert!(runtimes.iter().any(|r|r.steam.as_ref()==Some(&moved)));
+        let flatpak=f.0.join(".var/app/com.valvesoftware.Steam/data/Steam");let external=f.0.join("external/FlatpakSteam");
+        fs::create_dir_all(external.join("steamapps")).unwrap();fs::create_dir_all(flatpak.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&external,&flatpak).unwrap();let managed=external.join("compatibilitytools.d/GE-ProtonFixture");proton_fixture(&managed);
+        fs::write(managed.join(".proton-medic-managed"),"GE-ProtonFixture").unwrap();
+        let scan=scanner::scan_home(&f.0);assert!(!native_tool_owners(&scan).contains_key(&managed));
+        assert!(discover_runtimes(&scan).iter().all(|r|r.id!=format!("proton:{}",managed.join("proton").display())));
+    }
+    #[test] fn runtime_owner_rejects_unowned_tools(){
+        let f=Fixture::new();let native=f.0.join(".local/share/Steam");fs::create_dir_all(native.join("steamapps")).unwrap();
+        let tool=f.0.join("unowned/Proton Fixture");proton_fixture(&tool);
+        let mut scan=scanner::scan_home(&f.0);scan.compatibility_tools.push(scanner::CompatibilityTool{name:"Proton Fixture".into(),path:tool.to_string_lossy().into(),source:"Fixture".into()});
+        assert!(discover_runtimes(&scan).iter().all(|r|r.kind!="proton"));
+    }
     #[test] fn runtime_discovery_skips_nonexecutable_path_entries_and_preserves_order(){
         let f=Fixture::new();let a=f.0.join("first");let b=f.0.join("second");fs::create_dir(&a).unwrap();fs::create_dir(&b).unwrap();
         for dir in [&a,&b]{fs::write(dir.join("wine"),"#!/bin/sh\nexit 0\n").unwrap();}

@@ -101,6 +101,79 @@ class WindowsShortcutTests(unittest.TestCase):
         return subprocess.run([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)],
                               env=self.env, text=True, capture_output=True, timeout=60)
 
+    def use_proton(self, tool):
+        tool.mkdir(parents=True)
+        runtime = tool/'proton'
+        runtime.write_text((self.home/'bin/wine').read_text())
+        runtime.chmod(0o700)
+        (tool/'compatibilitytool.vdf').write_text(
+            '"compatibilitytools" { "compat_tools" { "fixture" { "install_path" "." } } }')
+        self.record['runtimeId'] = 'proton:' + str(runtime.resolve())
+        self.save()
+
+    def assert_runtime_rejected(self):
+        before = (self.profile/'profile.json').read_bytes()
+        result = self.launch()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('runtime is not available', result.stderr)
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual((self.profile/'profile.json').read_bytes(), before)
+
+    def test_flatpak_external_and_shared_proton_are_not_host_runtimes(self):
+        native = self.home/'.local/share/Steam'
+        flatpak = self.home/'.var/app/com.valvesoftware.Steam/data/Steam'
+        for root in (native, flatpak):
+            (root/'steamapps').mkdir(parents=True)
+        library = self.home/'external/SteamLibrary'
+        self.use_proton(library/'steamapps/common/Proton Fixture')
+        folders = '"libraryfolders" { "1" { "path" "'+str(library)+'" } }'
+        (flatpak/'steamapps/libraryfolders.vdf').write_text(folders)
+        self.assert_runtime_rejected()
+        (native/'steamapps/libraryfolders.vdf').write_text(folders)
+        self.assert_runtime_rejected()
+
+    def test_native_proton_under_var_is_not_mistaken_for_flatpak(self):
+        native = self.home/'.local/share/Steam'
+        moved = self.home/'.var/native-steam'
+        (moved/'steamapps').mkdir(parents=True)
+        native.parent.mkdir(parents=True)
+        native.symlink_to(moved, target_is_directory=True)
+        self.use_proton(moved/'compatibilitytools.d/Proton Fixture')
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        environment = json.loads((self.home/'runtime-environment.json').read_text())
+        self.assertEqual(environment['STEAM_COMPAT_CLIENT_INSTALL_PATH'], str(moved))
+
+    def test_custom_proton_symlink_uses_its_second_native_owner(self):
+        first = self.home/'.local/share/Steam'
+        second = self.home/'.steam/debian-installation'
+        for root in (first, second):
+            (root/'steamapps').mkdir(parents=True)
+        tool = self.home/'external/Proton Fixture'
+        self.use_proton(tool)
+        custom = second/'compatibilitytools.d'
+        custom.mkdir()
+        (custom/'Proton Fixture').symlink_to(tool, target_is_directory=True)
+        (custom/'Proton Alias').symlink_to(tool, target_is_directory=True)
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        environment = json.loads((self.home/'runtime-environment.json').read_text())
+        self.assertEqual(environment['STEAM_COMPAT_CLIENT_INSTALL_PATH'], str(second))
+
+    def test_moved_flatpak_managed_proton_is_not_started_through_host_umu(self):
+        flatpak = self.home/'.var/app/com.valvesoftware.Steam/data/Steam'
+        moved = self.home/'external/FlatpakSteam'
+        (moved/'steamapps').mkdir(parents=True)
+        flatpak.parent.mkdir(parents=True)
+        flatpak.symlink_to(moved, target_is_directory=True)
+        tool = moved/'compatibilitytools.d/GE-ProtonFixture'
+        self.use_proton(tool)
+        (tool/'.proton-medic-managed').write_text('GE-ProtonFixture')
+        umu = self.home/'bin/umu-run'
+        umu.write_text((self.home/'bin/wine').read_text())
+        umu.chmod(0o700)
+        self.assert_runtime_rejected()
+
     def start_held_runtime(self):
         runtime = self.home/'bin/wine'
         runtime.write_text('#!/usr/bin/python3\nimport time\nfrom pathlib import Path\n'
@@ -456,9 +529,42 @@ class WindowsShortcutTests(unittest.TestCase):
         env = json.loads((self.home / 'runtime-environment.json').read_text())
         self.assertNotIn('APPDIR', env)
         self.assertNotIn('APPIMAGE', env)
-        for key in ['LD_LIBRARY_PATH', 'PYTHONHOME', 'PYTHONPATH', 'GTK_PATH', 'GIO_MODULE_DIR']:
+        for key in ['LD_LIBRARY_PATH', 'PYTHONHOME', 'PYTHONPATH', 'GTK_PATH', 'GIO_MODULE_DIR',
+                    'GST_PLUGIN_PATH', 'GST_PLUGIN_PATH_1_0', 'GST_PLUGIN_SYSTEM_PATH',
+                    'GST_PLUGIN_SYSTEM_PATH_1_0', 'GST_PLUGIN_SCANNER', 'GST_PLUGIN_SCANNER_1_0']:
             self.assertNotIn('/tmp/appimage_', env.get(key, ''))
             self.assertNotIn('/tmp/.mount_', env.get(key, ''))
+
+    def test_game_keeps_host_gstreamer_plugin_discovery(self):
+        runtime = self.home/'bin/wine'
+        runtime.write_text(
+            '#!/usr/bin/python3\nimport ctypes,json,sys\nfrom pathlib import Path\n'
+            'try: lib=ctypes.CDLL("libgstreamer-1.0.so.0")\n'
+            'except OSError: sys.exit(77)\n'
+            'lib.gst_init(None,None)\n'
+            'lib.gst_element_factory_find.argtypes=[ctypes.c_char_p]\n'
+            'lib.gst_element_factory_find.restype=ctypes.c_void_p\n'
+            'elements={name:bool(lib.gst_element_factory_find(name.encode())) for name in '
+            '["fakesink","filesrc","playbin","decodebin","audioconvert","videoconvert"]}\n'
+            f'Path({str(self.receipt)!r}).write_text(json.dumps(elements))\n')
+        # Use the same host probe and fresh registries in both cases. A minimal
+        # smoke container may legitimately have no host GStreamer installation.
+        for key in ['GST_PLUGIN_SYSTEM_PATH', 'GST_PLUGIN_SYSTEM_PATH_1_0',
+                    'GST_PLUGIN_PATH', 'GST_PLUGIN_PATH_1_0', 'GST_PLUGIN_SCANNER', 'GST_PLUGIN_SCANNER_1_0']:
+            self.env.pop(key, None)
+        self.env['GST_REGISTRY_1_0'] = str(self.home/'baseline-gst-registry.bin')
+        baseline = subprocess.run([str(runtime)], env=self.env, capture_output=True, text=True, timeout=30)
+        if baseline.returncode == 77:
+            self.skipTest('Host GStreamer is not installed')
+        self.assertEqual(baseline.returncode, 0, baseline.stderr)
+        expected = json.loads(self.receipt.read_text())
+        if not any(expected.values()):
+            self.skipTest('Host GStreamer has no probe plugins')
+        self.receipt.unlink()
+        self.env['GST_REGISTRY_1_0'] = str(self.home/'runtime-gst-registry.bin')
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(self.receipt.read_text()), expected)
 
     def test_missing_executable_fails_without_starting_runtime(self):
         self.record['gameExe'] = str(self.home/'missing.exe')
