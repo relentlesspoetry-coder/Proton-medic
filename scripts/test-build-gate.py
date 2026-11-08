@@ -63,5 +63,13 @@ class BuildGateTests(unittest.TestCase):
         self.assertIn('/build-zorin.sh" --build', wrapper)
         self.assertNotIn('sudo', wrapper)
 
+    def test_patched_updater_regressions_gate_native_and_release_builds(self):
+        command = 'cargo test --locked --manifest-path src-tauri/Cargo.toml -p tauri-plugin-updater --lib'
+        self.assertIn(command, SCRIPT.read_text())
+        self.assertIn(command, (ROOT/'.github/workflows/linux-validation.yml').read_text())
+        manifest = (ROOT/'src-tauri/Cargo.toml').read_text()
+        self.assertIn('[patch.crates-io]', manifest)
+        self.assertIn('tauri-plugin-updater = { path = "vendor/tauri-plugin-updater" }', manifest)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

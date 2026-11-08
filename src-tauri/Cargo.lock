@@ -2494,7 +2494,7 @@ dependencies = [
 
 [[package]]
 name = "proton-medic"
-version = "0.6.46"
+version = "0.6.47"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -3593,8 +3593,6 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-updater"
 version = "2.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "855a336eb389d2c1502244fd48fa2d8cb487a430f691bbaed025195f99a04489"
 dependencies = [
  "base64 0.22.1",
  "dirs",
