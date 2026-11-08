@@ -73,7 +73,7 @@ fn tokenize(data: &str) -> Result<Vec<Token>, String> {
     let mut i = 0;
     while i < input.len() {
         match input[i] {
-            b' ' | b'\n' | b'\r' | b'\t' => i += 1,
+            byte if byte.is_ascii_whitespace() => i += 1,
             b'/' if i + 1 < input.len() && input[i + 1] == b'/' => {
                 i += 2;
                 while i < input.len() && input[i] != b'\n' { i += 1; }
@@ -472,6 +472,39 @@ mod tests {
         let state = obj_get(&parsed, "AppState").unwrap();
         assert_eq!(text_get(state, "name"), Some("It's \"Working\""));
         assert_eq!(text_get(state, "buildid"), Some("17"));
+    }
+
+    #[test]
+    fn every_ascii_whitespace_separator_advances_without_empty_tokens() {
+        for byte in (0u8..=127).filter(u8::is_ascii_whitespace) {
+            let separator = byte as char;
+            let text = format!("{separator}root{separator}{{{separator}key{separator}value{separator}}}{separator}");
+            let parsed = parse_vdf(&text).unwrap();
+            assert_eq!(text_get(obj_get(&parsed, "root").unwrap(), "key"), Some("value"));
+            assert!(parse_vdf(&separator.to_string().repeat(32)).unwrap().is_empty());
+        }
+        // Whitespace inside a quoted value is data, not a separator.
+        let parsed = parse_vdf("root { key \"before\u{c}after\" }").unwrap();
+        assert_eq!(text_get(obj_get(&parsed, "root").unwrap(), "key"), Some("before\u{c}after"));
+    }
+
+    #[test]
+    fn form_feed_in_library_metadata_does_not_hide_external_games() {
+        let home = TestHome::new();
+        let root = home.0.join(".local/share/Steam");
+        let external = home.0.join("External library");
+        fs::create_dir_all(root.join("steamapps")).unwrap();
+        fs::create_dir_all(external.join("steamapps/common/Game")).unwrap();
+        fs::write(root.join("steamapps/libraryfolders.vdf"), format!(
+            "\"libraryfolders\"\u{c}{{ \"1\" {{ \"path\" \"{}\" }} }}", external.display()
+        )).unwrap();
+        fs::write(external.join("steamapps/appmanifest_123.acf"),
+            "\"AppState\"\u{c}{ \"appid\" \"123\" \"name\" \"Game\" \"installdir\" \"Game\" }").unwrap();
+        let scan = scan_home(&home.0);
+        assert_eq!(scan.libraries.len(), 2);
+        assert_eq!(scan.games.len(), 1);
+        assert_eq!(scan.games[0].library_path, display_path(&external));
+        assert!(scan.warnings.is_empty(), "{:?}", scan.warnings);
     }
 
     #[test]
