@@ -70,6 +70,8 @@ class BuildGateTests(unittest.TestCase):
         manifest = (ROOT/'src-tauri/Cargo.toml').read_text()
         self.assertIn('[patch.crates-io]', manifest)
         self.assertIn('tauri-plugin-updater = { path = "vendor/tauri-plugin-updater" }', manifest)
+        self.assertIn('members = ["vendor/tauri-plugin-updater"]', manifest)
+        self.assertIn('default-members = ["."]', manifest)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
