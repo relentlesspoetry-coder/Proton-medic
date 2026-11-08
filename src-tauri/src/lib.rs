@@ -4,6 +4,7 @@ mod support_report;
 mod game_icons;
 mod game_covers;
 mod app_update;
+mod app_close;
 mod portable;
 pub mod windows_shortcuts;
 #[tauri::command]
@@ -291,9 +292,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if let Err(reason) = app_update::prepare_close() {
                     api.prevent_close();
-                    use tauri_plugin_dialog::DialogExt;
-                    window.dialog().message(format!("Keep Proton Medic open until active work finishes.\n\n{reason}"))
-                        .title("Proton Medic is busy").show(|_| {});
+                    app_close::request(window.clone(), reason);
                 }
             }
         })

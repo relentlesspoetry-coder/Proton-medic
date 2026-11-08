@@ -144,6 +144,77 @@ class WindowsShortcutTests(unittest.TestCase):
         with (self.home/'data/proton-medic/locks/activity.lock').open('r+') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
+    def test_force_quit_kills_detached_term_resistant_family_not_unrelated_processes(self):
+        runtime = self.home/'bin/wine'
+        child = self.home/'force-child.py'
+        identities = self.home/'force-identities.jsonl'
+        release = self.home/'release-force'
+        # The initial runtime exits. Its detached child forks again on TERM,
+        # exits, and leaves a TERM-resistant grandchild for the subreaper.
+        child.write_text(
+            'import json,os,signal,time\nfrom pathlib import Path\n'
+            f'identities=Path({str(identities)!r})\n'
+            'def record():\n'
+            '    fields=Path(f"/proc/{os.getpid()}/stat").read_text().rsplit(")",1)[1].split()\n'
+            '    with identities.open("a") as out: out.write(json.dumps([os.getpid(),int(fields[19])])+"\\n")\n'
+            'def term(sig,frame):\n'
+            '    if os.fork(): os._exit(0)\n'
+            '    os.setsid()\n'
+            '    signal.signal(signal.SIGTERM,signal.SIG_IGN)\n'
+            '    record()\n'
+            'signal.signal(signal.SIGTERM,term)\n'
+            'record()\n'
+            f'Path({str(self.receipt)!r}).write_text("started")\n'
+            'deadline=time.monotonic()+25\n'
+            f'while not Path({str(release)!r}).exists() and time.monotonic()<deadline: time.sleep(0.02)\n')
+        runtime.write_text('#!/usr/bin/python3\nimport subprocess\n'
+                          f'subprocess.Popen(["/usr/bin/python3", {str(child)!r}], start_new_session=True)\n')
+        process = subprocess.Popen([str(BINARY), '--launch-windows-game', '123-456', '--profile-root', str(self.root)],
+                                   env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        unrelated = subprocess.Popen(['/usr/bin/sleep', '30'])
+        try:
+            deadline = time.monotonic()+15
+            while not self.receipt.exists() and time.monotonic()<deadline:
+                time.sleep(0.02)
+            self.assertTrue(self.receipt.exists())
+            saved = json.loads((self.profile/'profile.json').read_text())
+            logs = self.profile/'logs'/saved['runId']
+            while not (logs/'force-stop-supported').exists() and time.monotonic()<deadline:
+                time.sleep(0.02)
+            self.assertEqual((logs/'force-stop-supported').read_text(), saved['runId'])
+            (logs/'force-stop-request').write_text('wrong-run')
+            time.sleep(0.5)
+            self.assertIsNone(process.poll())
+            # Graceful updater stop must not escalate, even after the force grace.
+            (logs/'stop-request').write_text(saved['runId'])
+            time.sleep(2.7)
+            self.assertIsNone(process.poll())
+            self.assertGreaterEqual(len(identities.read_text().splitlines()), 2)
+            started = time.monotonic()
+            (logs/'force-stop-request').write_text(saved['runId'])
+            process.communicate(timeout=12)
+            self.assertLess(time.monotonic()-started, 10)
+            self.assertIsNone(unrelated.poll())
+            for line in identities.read_text().splitlines():
+                pid, start = json.loads(line)
+                try:
+                    state, _, current_start = process_identity(pid)
+                except FileNotFoundError:
+                    continue
+                self.assertTrue(current_start != start or state in ('Z', 'X'), 'Owned runtime survived force quit')
+            final = json.loads((self.profile/'profile.json').read_text())
+            self.assertFalse(final['state'].endswith('running'))
+            locks = list((self.home/'data/proton-medic/locks').glob('*.lock')) + [self.prefix/'.proton-medic.lock', self.profile/'profile.lock']
+            for path in locks:
+                if path.exists():
+                    with path.open('r+') as lock:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            release.touch()
+            process.communicate(timeout=30)
+            unrelated.terminate()
+            unrelated.wait()
+
     def test_detached_child_keeps_profile_prefix_and_update_locked(self):
         runtime = self.home/'bin/wine'
         child = self.home/'detached.py'

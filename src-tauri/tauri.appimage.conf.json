@@ -5,7 +5,10 @@
         "files": {
           "/usr/lib/libfontconfig.so.1": "/usr/lib/x86_64-linux-gnu/libfontconfig.so.1",
           "/usr/lib/libfreetype.so.6": "/usr/lib/x86_64-linux-gnu/libfreetype.so.6",
-          "/usr/lib/libexpat.so.1": "/usr/lib/x86_64-linux-gnu/libexpat.so.1"
+          "/usr/lib/libexpat.so.1": "/usr/lib/x86_64-linux-gnu/libexpat.so.1",
+          "/usr/share/mime": "/usr/share/mime",
+          "/usr/share/icons/Adwaita": "/usr/share/icons/Adwaita",
+          "/usr/share/icons/hicolor/index.theme": "/usr/share/icons/hicolor/index.theme"
         }
       }
     }
