@@ -17,6 +17,10 @@ fn entry(name:&str,binary:&Path,root:&Path,id:&str,icon:&Path)->Result<String,St
     if binary.contains('='){return Err("The application path cannot contain = in a desktop launcher".into());}
     let launch = if binary.ends_with(".AppImage") || std::env::var_os("APPIMAGE").as_deref()==Some(std::ffi::OsStr::new(binary)) {
         format!("/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 {}",argument(binary)?)
+    } else if binary.contains('%') {
+        // GIO probes the executable before expanding %% field escapes. Keep
+        // that position fixed and pass a percent-bearing path as an argument.
+        format!("/usr/bin/env {}",argument(binary)?)
     } else { argument(binary)? };
     Ok(format!("[Desktop Entry]\nType=Application\nVersion=1.0\nName={}\nComment=Launch with the saved Proton Medic runtime and prefix\nExec={} --launch-windows-game {} --profile-root {}\nIcon={}\nTerminal=false\nCategories=Game;\nStartupNotify=false\n",value(name)?,launch,argument(id)?,argument(root.to_str().ok_or("Profile path is not UTF-8")?)?,value(icon.to_str().ok_or("Icon path is not UTF-8")?)?))
 }
@@ -32,6 +36,50 @@ fn create_file(path:&Path,bytes:&[u8],mode:u32)->Result<(),String>{
         },Err(e)=>Err(e.to_string())
     }
 }
+// Only our complete generated format can authorize changing an executable
+// path. This also recognizes older launchers, without trusting a filename or
+// an Exec suffix that an unrelated/customized desktop entry could share.
+fn launcher_identity(text:&str)->Option<(String,String)>{
+    let mut lines=text.lines();
+    if lines.next()? != "[Desktop Entry]" {return None;}
+    let mut fields=std::collections::HashMap::new();
+    for line in lines {
+        let (key,value)=line.split_once('=')?;
+        if !matches!(key,"Type"|"Version"|"Name"|"Comment"|"Exec"|"Icon"|"Terminal"|"Categories"|"StartupNotify") || fields.insert(key,value).is_some(){return None;}
+    }
+    if fields.len()!=9 {return None;}
+    for (key,value) in [("Type","Application"),("Version","1.0"),("Comment","Launch with the saved Proton Medic runtime and prefix"),("Terminal","false"),("Categories","Game;"),("StartupNotify","false")] {
+        if fields.get(key).copied()!=Some(value){return None;}
+    }
+    let exec=*fields.get("Exec")?;
+    let (wrapper,command)=if let Some(rest)=exec.strip_prefix("/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 ") {
+        ("/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 ",rest)
+    }else if let Some(rest)=exec.strip_prefix("/usr/bin/env ") {("/usr/bin/env ",rest)}else{("",exec)};
+    // Undo the desktop-entry string layer, then parse only the generated
+    // quoted arguments. No shell expansion or general-purpose shell parsing.
+    let mut decoded=String::new();let mut chars=command.chars();
+    while let Some(c)=chars.next(){
+        if c.is_control(){return None;}
+        if c=='\\' && chars.next()!=Some('\\'){return None;}
+        decoded.push(c);
+    }
+    fn quoted(input:&str)->Option<(String,&str)>{
+        let mut chars=input.strip_prefix('"')?.char_indices();let mut value=String::new();
+        while let Some((at,c))=chars.next(){match c {
+            '"'=>return Some((value,&input[at+2..])),
+            '\\'=>{let (_,escaped)=chars.next()?;if !matches!(escaped,'\\'|'"'|'`'|'$'){return None;}value.push(escaped);},
+            '%'=>{if chars.next()?.1!='%'{return None;}value.push('%');},
+            _=>value.push(c),
+        }}None
+    }
+    let (binary,rest)=quoted(&decoded)?;
+    let (id,rest)=quoted(rest.strip_prefix(" --launch-windows-game ")?)?;
+    let (root,rest)=quoted(rest.strip_prefix(" --profile-root ")?)?;
+    if !rest.is_empty() || !Path::new(&binary).is_absolute() || !Path::new(&root).is_absolute() || id.is_empty() || id.len()>=80 || !id.bytes().all(|b|b.is_ascii_digit() || b==b'-'){return None;}
+    let canonical=format!("{wrapper}{} --launch-windows-game {} --profile-root {}",argument(&binary).ok()?,argument(&id).ok()?,argument(&root).ok()?);
+    if canonical!=exec{return None;}
+    Some((id,root))
+}
 fn write_launcher(path:&Path,content:&[u8],backups:&Path)->Result<(),String>{
     if !path.exists(){return create_file(path,content,0o700);}
     let meta=fs::symlink_metadata(path).map_err(|e|e.to_string())?;
@@ -42,9 +90,7 @@ fn write_launcher(path:&Path,content:&[u8],backups:&Path)->Result<(),String>{
     if previous==content{return Ok(());}
     let before=std::str::from_utf8(&previous).map_err(|_|"Existing shortcut is not UTF-8")?;
     let after=std::str::from_utf8(content).map_err(|_|"Invalid launcher content")?;
-    let exec=|text:&str|text.lines().find_map(|line|line.strip_prefix("Exec="))
-        .map(|line|line.strip_prefix("/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 ").unwrap_or(line).to_owned());
-    if exec(before).is_none() || exec(before)!=exec(after){return Err("Existing shortcut launches a different command; it was left unchanged".into());}
+    if launcher_identity(before).is_none() || launcher_identity(before)!=launcher_identity(after){return Err("Existing shortcut is not an unchanged Proton Medic launcher for this profile; it was left unchanged".into());}
     if !backups.exists(){use std::os::unix::fs::DirBuilderExt;fs::DirBuilder::new().mode(0o700).create(backups).map_err(|e|e.to_string())?;}
     let meta=fs::symlink_metadata(backups).map_err(|e|e.to_string())?;
     if !meta.is_dir() || meta.file_type().is_symlink(){return Err("Shortcut backup directory must not be a symbolic link".into());}
@@ -142,6 +188,67 @@ mod tests{
         create_file(&path,old.as_bytes(),0o700).unwrap();write_launcher(&path,new.as_bytes(),&backup).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(),new);let saved=fs::read_dir(&backup).unwrap().next().unwrap().unwrap().path();assert_eq!(fs::read_to_string(saved).unwrap(),old);
         assert!(write_launcher(&path,b"[Desktop Entry]\nExec=/different-app\n",&backup).is_err());assert_eq!(fs::read_to_string(&path).unwrap(),new);fs::remove_dir_all(root).unwrap();
+    }
+
+    fn refresh_fixture(label:&str)->PathBuf{
+        let root=std::env::temp_dir().join(format!("pm-{label}-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir(&root).unwrap();root
+    }
+    #[test] fn moved_appimage_refresh_preserves_identity_and_backs_up_both_destinations(){
+        let root=refresh_fixture("moved-shortcut");let backups=root.join("backups");
+        let profile=root.join("Games %f $HOME `literal` \\\" 遊戲");
+        let old=entry("Old name",Path::new("/Applications/proton-medic_0.6.48_amd64.AppImage"),&profile,"123-456",Path::new("/old.png")).unwrap();
+        let new=entry("New name",Path::new("/Games/Proton %Medic \\\".AppImage"),&profile,"123-456",Path::new("/new.png")).unwrap();
+        for name in ["menu.desktop","desktop.desktop"]{
+            let path=root.join(name);create_file(&path,old.as_bytes(),0o700).unwrap();
+            write_launcher(&path,new.as_bytes(),&backups).unwrap();assert_eq!(fs::read_to_string(&path).unwrap(),new);
+            write_launcher(&path,new.as_bytes(),&backups).unwrap();
+        }
+        let saved:Vec<_>=fs::read_dir(&backups).unwrap().map(|p|fs::read_to_string(p.unwrap().path()).unwrap()).collect();
+        assert_eq!(saved,vec![old.clone(),old]);fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn legacy_plain_appimage_and_native_launchers_can_migrate_to_current_format(){
+        let portable=entry("Game",Path::new("/old/Medic.AppImage"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        let legacy=portable.replace("/usr/bin/env APPIMAGE_EXTRACT_AND_RUN=1 ","");
+        let native=entry("Game",Path::new("/usr/bin/proton-medic"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        let percent=entry("Game",Path::new("/opt/Native%Medic"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        let new=entry("Game",Path::new("/new/Medic.AppImage"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        for old in [legacy,native,portable,percent]{
+            let root=refresh_fixture("legacy-shortcut");let path=root.join("game.desktop");
+            create_file(&path,old.as_bytes(),0o700).unwrap();write_launcher(&path,new.as_bytes(),&root.join("backups")).unwrap();
+            assert_eq!(fs::read_to_string(path).unwrap(),new);fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test] fn refresh_rejects_other_profiles_and_non_generated_or_ambiguous_commands(){
+        let old=entry("Game",Path::new("/old/Medic.AppImage"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        let new=entry("Game",Path::new("/new/Medic.AppImage"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        let changed_id=entry("Game",Path::new("/old/Medic.AppImage"),Path::new("/data"),"456",Path::new("/icon")).unwrap();
+        let changed_root=entry("Game",Path::new("/old/Medic.AppImage"),Path::new("/other"),"123",Path::new("/icon")).unwrap();
+        let exec=old.lines().find(|line|line.starts_with("Exec=")).unwrap();
+        for previous in [changed_id,changed_root,format!("{old}Exec=/bin/other\n"),format!("{old}[Desktop Action Extra]\nExec=/bin/other\n"),format!("{old}Hidden=true\n"),old.replace("Terminal=false","Terminal=true"),old.replace("Comment=Launch with the saved Proton Medic runtime and prefix","Comment=Unrelated launcher"),old.replace(exec,&format!("{exec} --extra")),old.replace("\"/data\"","\"/data%f\""),old.replace("\"/data\"","\"/data\\s\""),old.replace("--profile-root", "--different-option")]{
+            let root=refresh_fixture("refuse-shortcut");let path=root.join("game.desktop");let backups=root.join("backups");
+            create_file(&path,previous.as_bytes(),0o700).unwrap();assert!(write_launcher(&path,new.as_bytes(),&backups).is_err());
+            assert_eq!(fs::read_to_string(&path).unwrap(),previous);assert!(!backups.exists());fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test] fn moved_launcher_refresh_rejects_symlink_targets_and_backup_directories(){
+        let root=refresh_fixture("symlink-shortcut");let target=root.join("original.desktop");let link=root.join("game.desktop");
+        let old=entry("Game",Path::new("/old/Medic.AppImage"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        let new=entry("Game",Path::new("/new/Medic.AppImage"),Path::new("/data"),"123",Path::new("/icon")).unwrap();
+        create_file(&target,old.as_bytes(),0o700).unwrap();std::os::unix::fs::symlink(&target,&link).unwrap();
+        assert!(write_launcher(&link,new.as_bytes(),&root.join("backups")).is_err());assert_eq!(fs::read_to_string(&target).unwrap(),old);
+        let outside=root.join("outside");fs::create_dir(&outside).unwrap();let backups=root.join("backups");std::os::unix::fs::symlink(&outside,&backups).unwrap();
+        assert!(write_launcher(&target,new.as_bytes(),&backups).is_err());assert_eq!(fs::read_to_string(&target).unwrap(),old);assert_eq!(fs::read_dir(outside).unwrap().count(),0);fs::remove_dir_all(root).unwrap();
+    }
+    #[test] fn native_percent_executable_round_trips_through_gio(){
+        let root=refresh_fixture("percent-shortcut");let binary=root.join("Native%Medic");let receipt=root.join("arguments.json");
+        fs::write(&binary,format!("#!/usr/bin/python3\nimport json,sys\nfrom pathlib import Path\nPath({:?}).write_text(json.dumps(sys.argv[1:]))\n",receipt.to_str().unwrap())).unwrap();
+        use std::os::unix::fs::PermissionsExt;fs::set_permissions(&binary,fs::Permissions::from_mode(0o700)).unwrap();
+        let profile=root.join("Profile %u");let desktop=root.join("game.desktop");
+        let content=entry("Game",&binary,&profile,"123",Path::new("/icon")).unwrap();assert!(content.contains("Exec=/usr/bin/env \""));fs::write(&desktop,content).unwrap();
+        let output=Command::new("gio").arg("launch").arg(&desktop).output().expect("gio is required for desktop entry integration tests");assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(5);while !receipt.exists(){assert!(std::time::Instant::now()<deadline);std::thread::sleep(std::time::Duration::from_millis(10));}
+        let args:Vec<String>=serde_json::from_slice(&fs::read(receipt).unwrap()).unwrap();assert_eq!(args,vec!["--launch-windows-game","123","--profile-root",profile.to_str().unwrap()]);fs::remove_dir_all(root).unwrap();
     }
 
 }
