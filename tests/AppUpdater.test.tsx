@@ -149,3 +149,31 @@ it('keeps older supervisors running and asks for manual closure',async()=>{
  await screen.findByRole('dialog');expect((screen.getByRole('button',{name:'Stop and update'}) as HTMLButtonElement).disabled).toBe(true);
  expect(value.downloadAndInstall).not.toHaveBeenCalled();
 });
+
+it('keeps one check active while native metadata retries are pending, even after reopening details', async () => {
+  let finish!: (value: null) => void;
+  check.mockImplementation(() => new Promise<null>(resolve => { finish = resolve; }));
+  render(<AppUpdater/>);
+  const button = screen.getByRole('button', { name: 'Check for updates' });
+  fireEvent.click(button); fireEvent.click(button);
+  await waitFor(() => expect(check).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Close update details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'About app updates' }));
+  fireEvent.click(button);
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  expect(check).toHaveBeenCalledTimes(1);
+  finish(null);
+  await screen.findByText('You are up to date.');
+  expect((button as HTMLButtonElement).disabled).toBe(false);
+});
+
+it('preserves native validation failures without frontend retries or installation', async () => {
+  check.mockRejectedValue('The configured updater endpoint must use a secure protocol like `https`.');
+  render(<AppUpdater/>);
+  fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+  await screen.findByRole('alert');
+  expect(check).toHaveBeenCalledTimes(1);
+  expect(screen.getByText(/The configured updater endpoint/)).toBeTruthy();
+  expect(screen.queryByRole('checkbox')).toBeNull();
+  expect(invoke).not.toHaveBeenCalled();
+});

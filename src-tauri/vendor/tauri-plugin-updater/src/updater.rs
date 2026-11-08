@@ -41,6 +41,8 @@ use crate::{
     error::{Error, Result},
 };
 
+mod metadata;
+
 const UPDATER_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 /// The kind of bundle the running application was installed from.
@@ -610,12 +612,13 @@ impl Updater {
                 request = configure_client(request);
             }
 
-            let response = request
-                .build()?
-                .get(url)
-                .headers(headers.clone())
-                .send()
-                .await;
+            let response = metadata::fetch(
+                &request.build()?,
+                url,
+                headers.clone(),
+                self.timeout.unwrap_or(Duration::from_secs(20)),
+            )
+            .await;
 
             match response {
                 Ok(res) => {
@@ -648,11 +651,12 @@ impl Updater {
                         log::error!(
                             "update endpoint did not respond with a successful status code"
                         );
+                        last_error = res.error_for_status().err().map(Into::into);
                     }
                 }
                 Err(err) => {
                     log::error!("failed to check for updates: {err}");
-                    last_error = Some(err.into())
+                    last_error = Some(Error::MetadataRequest(metadata::describe(&err)))
                 }
             }
         }

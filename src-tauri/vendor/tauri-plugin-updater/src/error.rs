@@ -41,6 +41,9 @@ pub enum Error {
     /// `reqwest` crate errors.
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
+    /// Metadata transport failure, including the underlying diagnostic chain.
+    #[error("{0}")]
+    MetadataRequest(String),
     /// The platform was not found in the updater JSON response.
     #[error("the platform `{0}` was not found in the response `platforms` object")]
     TargetNotFound(String),
