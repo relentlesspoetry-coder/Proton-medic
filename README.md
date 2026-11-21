@@ -42,7 +42,7 @@ These screenshots show the rendered interface with sample data. The installer sh
 - Load Steam covers from local artwork or Steam’s image servers, and choose a custom PNG or JPEG cover for any game.
 - Preview and export a local troubleshooting report with personal paths redacted by default.
 - Check for signed GitHub updates when requested.
-- Switch between four frosted-glass themes: Carbon Green, Cyan Purple, Red Orange Gold, and Teal Green Gold.
+- Switch between four frosted-glass themes: Carbon Green, Blue & Purple, Red & Orange, and Teal & Green.
 
 The update button appears at the top right on every page, with the installed version directly below it.
 

@@ -8,8 +8,8 @@ update endpoints, release metadata or user data.
 ## Design contract
 
 - The approved Library layout is the reference.
-- Exactly four color themes: Carbon Green, Cyan Purple, Red Orange Gold,
-  and Teal Green Gold.
+- Exactly four color themes: Carbon Green, Blue & Purple, Red & Orange,
+  and Teal & Green.
 - Glass is actual backdrop blur with translucent surfaces, not an opaque
   gradient; reduced motion and strong-focus treatments remain available.
 - Four primary navigation destinations: Library, Install, Tools, Settings.

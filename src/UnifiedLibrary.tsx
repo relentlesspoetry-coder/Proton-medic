@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { ArrowRight, Play, Plus, RefreshCw, Search, Star, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock3, Gamepad2, Grid2X2, HardDrive, Heart, List, Play, Plus, RefreshCw, Search, Settings2, Wrench, X } from 'lucide-react';
 import type { Game as SteamGame } from './types';
 import type { Game as WindowsGame, Library } from './WindowsGames';
 import { GameIcon } from './GameIcon';
@@ -39,6 +39,7 @@ interface Props {
  onSteam:(game:SteamGame)=>void;onWindows:(game:WindowsGame)=>void;steamStatus:(game:SteamGame)=>ReactNode;
 }
 export function UnifiedLibrary(props:Props){
+ const [viewMode,setViewMode]=useState<'grid'|'list'>('grid');
  const [steamLaunching,setSteamLaunching]=useState(false);
  const [launchGame,setLaunchGame]=useState<SteamGame|null>(null);
  const [launching,setLaunching]=useState<string|null>(null);
@@ -115,16 +116,29 @@ export function UnifiedLibrary(props:Props){
   finally{setRetry(value=>value+1);launchLock.current=false;setLaunching(null);}
  };
  return <>
-  <div className="pm-library-toolbar">
-   <label className="pm-search"><Search size={19}/><input value={props.query} onChange={event=>props.onQuery(event.target.value)} placeholder="Search games…" aria-label="Search games"/></label>
-   <div className="pm-library-sources" role="group" aria-label="Game source">{(['all','steam','windows'] as const).map(source=><button key={source} type="button" aria-pressed={props.source===source} onClick={()=>props.onSource(source)}>{source==='all'?'All':source==='steam'?'Steam':'Windows'}</button>)}</div>
-   {props.onAddGame&&<button className="pm-button pm-button-primary" onClick={props.onAddGame}><Plus size={18}/>Add game</button>}
-  </div>
-  <div className="pm-library-options">
-   <select aria-label="Filter games" value={props.filter} onChange={event=>props.onFilter(event.target.value as LibraryFilter)}><option value="all">All games</option><option value="favorites">Favorites</option><option value="issues">Needs attention</option><option value="missing">Missing Steam folder</option><option value="prefix">Steam Proton prefix</option></select>
-   <select aria-label="Sort games" value={props.sort} onChange={event=>props.onSort(event.target.value as LibrarySort)}><option value="name">Name A–Z</option><option value="recent">Recently played</option></select>
-   <span>{visible.length} games</span>
-   {props.onScan&&<button className="pm-button pm-button-secondary" disabled={props.scanning} onClick={props.onScan}><RefreshCw size={16}/>{props.scanning?'Scanning…':'Scan library'}</button>}
+  <div className="gw-library-controls">
+   <div className="pm-library-toolbar">
+    <p className="gw-library-subtitle">All your games, in one place.</p>
+    <label className="pm-search"><Search size={17}/><input value={props.query} onChange={event=>props.onQuery(event.target.value)} placeholder="Search games…" aria-label="Search games"/></label>
+    <div className="gw-view-modes" role="group" aria-label="Library view">
+     <button type="button" aria-label="Grid view" title="Grid view" aria-pressed={viewMode==='grid'} onClick={()=>setViewMode('grid')}><Grid2X2 size={17}/></button>
+     <button type="button" aria-label="List view" title="List view" aria-pressed={viewMode==='list'} onClick={()=>setViewMode('list')}><List size={17}/></button>
+    </div>
+   </div>
+   <div className="pm-library-options gw-library-filterbar">
+    <div className="pm-library-sources" role="group" aria-label="Game source">{(['all','steam','windows'] as const).map(source=>{
+     const count=source==='all'?items.length:source==='steam'?props.steam.length:windows.length;
+     const label=source==='all'?'All':source==='steam'?'Steam':'Windows';
+     return <button key={source} type="button" aria-label={label} aria-pressed={props.source===source} onClick={()=>props.onSource(source)}>
+      {source==='all'?<Gamepad2 size={15}/>:source==='windows'?<HardDrive size={15}/>:null}<span>{source==='all'?'All Games':label}</span><small aria-hidden="true">{count}</small>
+     </button>;
+    })}</div>
+    <button type="button" className="gw-favorites-filter" aria-pressed={props.filter==='favorites'} onClick={()=>props.onFilter(props.filter==='favorites'?'all':'favorites')}><Heart size={15}/> Favorites <small aria-hidden="true">{items.filter(item=>favorites.has(item.key)).length}</small></button>
+    <select aria-label="Filter games" value={props.filter} onChange={event=>props.onFilter(event.target.value as LibraryFilter)}><option value="all">All games</option><option value="favorites">Favorites</option><option value="issues">Needs attention</option><option value="missing">Missing Steam folder</option><option value="prefix">Steam Proton prefix</option></select>
+    <select aria-label="Sort games" value={props.sort} onChange={event=>props.onSort(event.target.value as LibrarySort)}><option value="name">Name A–Z</option><option value="recent">Recently played</option></select>
+    {props.onScan&&<button className="pm-button pm-button-secondary" disabled={props.scanning} onClick={()=>props.onScan?.()}><RefreshCw size={15}/>{props.scanning?'Scanning…':'Scan library'}</button>}
+    {props.onAddGame&&<button className="pm-button pm-button-primary" onClick={props.onAddGame}><Plus size={16}/>Add game</button>}
+   </div>
   </div>
   {favoriteError&&<p role="alert" className="pm-repair-danger">{favoriteError}</p>}
   {error&&<div role="alert" className="pm-repair-danger"><span>Could not refresh Windows games: {error}. Previously loaded games are kept.</span><button className="pm-button pm-button-secondary" onClick={()=>setRetry(value=>value+1)}>Retry Windows library</button></div>}
@@ -132,7 +146,7 @@ export function UnifiedLibrary(props:Props){
   {launchError&&<p role="alert" className="pm-repair-danger">{launchError}</p>}
   {launchGame&&<section ref={launchPanel} tabIndex={-1} className="pm-section pm-library-launch" aria-label={`Launch ${launchGame.name}`}><div className="pm-section-heading"><h2>Launch {launchGame.name}</h2><button className="pm-button pm-button-secondary" aria-label="Close launch options" disabled={steamLaunching} onClick={()=>setLaunchGame(null)}><X size={18}/></button></div><LaunchTest key={steamLibraryKey(launchGame)} game={launchGame} onBusyChange={setSteamLaunching}/></section>}
   {props.sort==='recent'&&<p className="pm-library-note">Uses available Steam last-played dates and recorded Windows game launches. Unknown dates appear last.</p>}
-  <div className="gw-library-layout">
+  <div className="gw-library-layout gw-library-parity" data-library-view={viewMode}>
    <div className="gw-library-list">
   <section className="pm-library-grid-section" aria-label="Unified game library">
    {!loaded&&!error&&props.source!=='steam'&&<p role="status">Loading Windows games…</p>}
@@ -141,13 +155,13 @@ export function UnifiedLibrary(props:Props){
     const source=sourceName(item);const favorite=favorites.has(item.key);
     return <article className={'pm-library-card'+(selectedItem?.key===item.key?' gw-selected':'')} key={item.key}>
      <GameCover name={item.name} source={{source:item.kind,id:item.kind==='steam'?item.game.appId:item.game.id,libraryPath:item.kind==='steam'?item.game.libraryPath:null}} onOpen={()=>openItem(item)}/>
+     <button type="button" className="pm-favorite gw-card-favorite" aria-label={`${favorite?'Remove':'Add'} ${item.name} (${source}) ${favorite?'from':'to'} favorites`} aria-pressed={favorite} onClick={()=>toggleFavorite(item.key)}><Heart size={17} fill={favorite?'currentColor':'none'}/></button>
      <div className="pm-library-card-body">
       <button type="button" className="pm-library-card-title gw-library-select" aria-label={`Select ${item.name} (${source})`} aria-pressed={selectedItem?.key===item.key} onClick={()=>setSelectedItemKey(item.key)}>{item.name}</button>
       <div className="pm-library-card-meta"><span>{source} · {runtimeName(item)}</span>{props.sort==='recent'&&<small>{item.recent?`${item.kind==='steam'?'Last played':'Last launched'} ${new Date(item.recent).toLocaleDateString()}`:'Date unknown'}</small>}</div>
       <div className="pm-library-card-status">{item.kind==='steam'?props.steamStatus(item.game):<span className={`pm-tag ${needsReview(item.game)?'warning':'neutral'}`}>{windowsStatus(item.game)}</span>}</div>
       <div className="pm-library-card-actions">
        <button className="pm-button pm-button-primary" aria-label={`Play ${item.name} (${source})`} disabled={cannotPlay(item)} onClick={()=>void play(item)}><Play size={17}/>{launching===item.key?'Launching…':'Play'}</button>
-       <button className="pm-favorite" aria-label={`${favorite?'Remove':'Add'} ${item.name} (${source}) ${favorite?'from':'to'} favorites`} aria-pressed={favorite} onClick={()=>toggleFavorite(item.key)}><Star size={18} fill={favorite?'currentColor':'none'}/></button>
        <button className="pm-button pm-button-secondary" aria-label={`Game settings for ${item.name} (${source})`} onClick={()=>openItem(item)}><ArrowRight size={17}/></button>
       </div>
      </div>
@@ -176,7 +190,7 @@ export function UnifiedLibrary(props:Props){
            <button type="button" className="pm-favorite"
              aria-pressed={favorite}
              aria-label={`${favorite?'Remove':'Add'} selected game ${favorite?'from':'to'} favorites`}
-             onClick={()=>toggleFavorite(item.key)}><Star size={19} fill={favorite?'currentColor':'none'}/></button>
+             onClick={()=>toggleFavorite(item.key)}><Heart size={19} fill={favorite?'currentColor':'none'}/></button>
          </div>
          <div className="gw-library-play-row">
            <button className="pm-button pm-button-primary" type="button"
@@ -185,26 +199,27 @@ export function UnifiedLibrary(props:Props){
              <Play size={19}/>{launching===item.key?'Launching…':'Play'}
            </button>
            <div className="gw-library-runtime" title={runtimeName(item)}>
-             <strong>{status}</strong><span>{runtimeName(item)}</span>
+             <strong>{ready&&<CheckCircle2 size={14}/>} {status}</strong><span>{runtimeName(item)}</span>
            </div>
          </div>
          <div className="gw-library-actions">
            <button type="button" className="gw-library-action" onClick={()=>openItem(item)}>
-             <span><strong>Configure Game</strong><small>Proton, launch options and game settings</small></span><ArrowRight size={18}/>
+             <Settings2 size={17}/><span><strong>Configure Game</strong><small>Proton, launch options and game settings</small></span><ArrowRight size={18}/>
            </button>
            <button type="button" className="gw-library-action" onClick={()=>openItem(item)}>
-             <span><strong>Diagnose &amp; Repair</strong><small>Review logs and supported repair options</small></span><ArrowRight size={18}/>
+             <Wrench size={17}/><span><strong>Diagnose &amp; Repair</strong><small>Review logs and supported repair options</small></span><ArrowRight size={18}/>
            </button>
            <button type="button" className="gw-library-action" onClick={()=>openItem(item)}>
-             <span><strong>Backups &amp; Rollback</strong><small>Manage game data and restore points</small></span><ArrowRight size={18}/>
+             <HardDrive size={17}/><span><strong>Backups &amp; Rollback</strong><small>Manage game data and restore points</small></span><ArrowRight size={18}/>
            </button>
          </div>
          <div className="gw-library-facts">
            <div><span>Source</span><strong>{source}</strong></div>
            <div><span>Runtime</span><strong>{runtimeName(item)}</strong></div>
+           <div><span>Last Played</span><strong>{item.recent>0?new Date(item.recent).toLocaleDateString():'Not recorded'}</strong></div>
          </div>
          <div className="gw-library-activity">
-           <div className="gw-library-activity-title"><strong>Recent Activity</strong>
+           <div className="gw-library-activity-title"><strong><Clock3 size={16}/> Recent Activity</strong>
              <button type="button" onClick={()=>openItem(item)}>View Details <ArrowRight size={14}/></button></div>
            {item.recent>0?<div className="gw-library-activity-line">
              <span>Last activity</span>

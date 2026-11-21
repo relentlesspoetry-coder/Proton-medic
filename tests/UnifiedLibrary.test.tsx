@@ -182,3 +182,22 @@ it.each([null,{...windows,id:'unexpected'}])('preserves the selected game and re
  expect(screen.getByRole('button',{name:'Open Shared name (Windows)'})).toBeTruthy();
  expect(inventoryCalls()).toBe(2);
 });
+
+it('switches grid and list without losing selection, and toggles the Favorites pill',async()=>{
+ const view=render(<Harness/>);await act(async()=>{});
+ fireEvent.click(screen.getByRole('button',{name:'Select Shared name (Windows)'}));
+ fireEvent.click(screen.getByRole('button',{name:'Add Shared name (Windows) to favorites'}));
+ const list=screen.getByRole('button',{name:'List view'});
+ fireEvent.click(list);
+ expect(list.getAttribute('aria-pressed')).toBe('true');
+ expect(view.container.querySelector('[data-library-view="list"]')).toBeTruthy();
+ expect(within(screen.getByRole('complementary',{name:'Selected game: Shared name'})).getByText('Windows game')).toBeTruthy();
+ const filter=screen.getByRole('button',{name:'Favorites',exact:true});
+ fireEvent.click(filter);
+ expect(filter.getAttribute('aria-pressed')).toBe('true');
+ expect(screen.queryByRole('button',{name:'Open Shared name (Steam)'})).toBeNull();
+ fireEvent.click(filter);
+ expect(screen.getByRole('button',{name:'Open Shared name (Steam)'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Grid view'}));
+ expect(view.container.querySelector('[data-library-view="grid"]')).toBeTruthy();
+});

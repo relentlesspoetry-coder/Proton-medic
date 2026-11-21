@@ -1,9 +1,10 @@
 /** Gameweave appearance is local-only; it never changes games, prefixes or Proton configurations. */
+// Stable internal IDs also reference the original logo assets and previously saved selections.
 export const THEMES = [
   { id:'carbon-green', label:'Carbon Green', colors:['#07110d','#42ef70','#c3ff44'] },
-  { id:'cyan-purple', label:'Cyan Purple', colors:['#11142d','#13d6fa','#c94ee9'] },
-  { id:'red-orange-gold', label:'Red Orange Gold', colors:['#200d13','#fa5139','#ffcf49'] },
-  { id:'teal-green-gold', label:'Teal Green Gold', colors:['#07201c','#11d9c8','#ffcf49'] },
+  { id:'cyan-purple', label:'Blue & Purple', colors:['#12142e','#6d9dff','#bd8aff'] },
+  { id:'red-orange-gold', label:'Red & Orange', colors:['#230f15','#ff6b73','#ff9a55'] },
+  { id:'teal-green-gold', label:'Teal & Green', colors:['#09201a','#42e4cc','#72ed8f'] },
 ] as const;
 export type Theme = typeof THEMES[number]['id'];
 export type Glass = 'subtle'|'balanced'|'strong';

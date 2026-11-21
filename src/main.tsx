@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import './style.css';
 import './gameweave/theme.css';
+import './gameweave/library-parity.css';
 
 class StartupBoundary extends React.Component<React.PropsWithChildren, {error:string|null}> {
   state:{error:string|null}={error:null};

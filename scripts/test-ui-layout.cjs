@@ -70,14 +70,26 @@ let browser;
  };
  await page.addInitScript(fixture);
  const results=[];
+ await page.setViewportSize({width:1440,height:900});
  await page.goto(address);
  const nav=page.getByRole('navigation',{name:'Main navigation'});
- await nav.getByRole('button',{name:'Settings',exact:true}).click();
- for(const [label,id] of [['Cyan Purple','cyan-purple'],['Red Orange Gold','red-orange-gold'],['Teal Green Gold','teal-green-gold'],['Carbon Green','carbon-green']]){
+ for(const [label,id] of [['Blue & Purple','cyan-purple'],['Red & Orange','red-orange-gold'],['Teal & Green','teal-green-gold'],['Carbon Green','carbon-green']]){
+  await nav.getByRole('button',{name:'Settings',exact:true}).click();
   await page.getByRole('radio',{name:label,exact:true}).click();
   const logo=page.locator('img.gw-brand-logo:not([hidden])');
   await logo.waitFor({state:'visible'});
   if(await logo.getAttribute('src')!==`/branding/${id}.webp`||!(await logo.evaluate(node=>node.complete&&node.naturalWidth===2048)))throw Error('Incorrect or missing theme logo: '+id);
+  await nav.getByRole('button',{name:'Library',exact:true}).click();
+  await page.locator(`.pm-app[data-gw-theme="${id}"] .gw-library-detail`).waitFor();
+  const palette=await page.evaluate(()=>{
+    const app=document.querySelector('.pm-app'),button=document.querySelector('.gw-library-play-row .pm-button-primary');
+    return {accent:getComputedStyle(app).getPropertyValue('--gw-accent').trim(),glass:getComputedStyle(button).backdropFilter};
+  });
+  if(!palette.accent||!palette.glass.startsWith('blur('))throw Error('Real glass unavailable for '+id);
+  const themeAudit=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  results.push({width:1440,name:'Theme: '+id,violations:themeAudit.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))}))});
+  await page.screenshot({path:path.join(output,`gameweave-theme-${id}.jpg`),type:'jpeg',quality:88});
+
  }
 
  for(const [width,height] of [[1440,900],[1200,800],[850,620],[1280,800],[390,844]]){
@@ -97,6 +109,15 @@ let browser;
   }
  }
  await page.setViewportSize({width:1440,height:900});
+ await nav.getByRole('button',{name:'Library',exact:true}).click();
+ await page.getByRole('button',{name:'Grid view',exact:true}).waitFor();
+ await page.locator('.gw-library-parity[data-library-view="grid"]').waitFor();
+ await page.screenshot({path:path.join(output,'gameweave-library-parity.png')});
+ await page.getByRole('button',{name:'List view',exact:true}).click();
+ await page.locator('.gw-library-parity[data-library-view="list"]').waitFor();
+ if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Library list view overflow');
+ await page.getByRole('button',{name:'Grid view',exact:true}).click();
+
  await nav.getByRole('button',{name:'Install',exact:true}).click();
  await page.getByRole('button',{name:'Choose installer (.exe)',exact:true}).click();
  await page.getByRole('checkbox',{name:/approve running it/i}).check();
@@ -107,7 +128,11 @@ let browser;
  await page.screenshot({path:path.join(output,'gameweave-installer-running.png')});
  await page.reload();
  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Tools',exact:true}).click();
-  await page.getByRole('button',{name:/^Proton Manager/}).click();
+ await page.setViewportSize({width:1440,height:900});
+ await page.getByRole('combobox',{name:'Game for tools'}).selectOption({label:'Black Myth: Wukong (Steam)'});
+ await page.getByRole('complementary',{name:'Selected game'}).getByRole('heading',{name:'Black Myth: Wukong'}).waitFor();
+ await page.screenshot({path:path.join(output,'gameweave-tools-parity.png')});
+ await page.getByRole('button',{name:'Proton Manager',exact:true}).click();
  await page.getByRole('button',{name:'Load latest releases',exact:true}).click();
  await page.getByLabel('I approve downloading and installing this GE-Proton release.',{exact:true}).check();
  await page.getByRole('button',{name:'Download and install',exact:true}).click();
@@ -167,7 +192,9 @@ let browser;
  await page.setViewportSize({width:1280,height:800});
  await page.screenshot({path:path.join(output,'unified-library.jpg'),fullPage:true,type:'jpeg',quality:80});
  await page.setViewportSize({width:1200,height:800});await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Library',exact:true}).click();await page.getByRole('button',{name:'Open Black Myth: Wukong (Steam)',exact:true}).click();await page.screenshot({path:path.join(output,'game-detail.jpg'),fullPage:true,type:'jpeg',quality:80});
- for(const name of ['Diagnostics','Proton','Launch & repair','Backups & details']) {
+ await page.getByRole('tab',{name:'Overview',exact:true}).waitFor();
+ await page.screenshot({path:path.join(output,'gameweave-details-overview.png')});
+ for(const name of ['Overview','Diagnostics','Proton','Launch & repair','Backups & details']) {
   await page.getByRole('tab',{name,exact:true}).click();
   if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Game panel overflow: '+name);
   const detail=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
@@ -214,7 +241,7 @@ let browser;
  await touch.addInitScript(fixture);await touch.goto(address);await touch.getByRole('textbox',{name:'Search games'}).waitFor();
  for(const name of ['Library','Install','Tools','Settings']){
   await touch.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name,exact:true}).tap();
-  const small=await touch.evaluate(()=>[...document.querySelectorAll('button,summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&(r.width<43.5||r.height<43.5)}).map(el=>el.textContent));
+  const small=await touch.evaluate(()=>[...document.querySelectorAll('button,summary')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&(r.width<43.5||r.height<43.5)}).map(el=>({label:el.getAttribute('aria-label')||el.textContent?.trim(),width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height})));
   if(small.length)throw Error('Small Deck touch targets on '+name+': '+JSON.stringify({small,media:await touch.evaluate(()=>({coarse:matchMedia('(any-pointer: coarse)').matches,size:getComputedStyle(document.documentElement).getPropertyValue('--pm-control-size')}))}));
   if(await touch.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Deck touch layout overflow: '+name);
   results.push({name:'Deck touch: '+name,layout:'passed'});

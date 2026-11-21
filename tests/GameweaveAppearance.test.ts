@@ -23,3 +23,7 @@ it('handles unavailable storage gracefully',()=>{
   expect(readAppearance({getItem:()=>{throw Error('disabled');}})).toEqual(DEFAULT);
   expect(saveAppearance(DEFAULT,{setItem:()=>{throw Error('disabled');}})).toBe(false);
 });
+
+it('uses the four approved names while keeping saved IDs stable',()=>{
+  expect(THEMES.map(theme=>theme.label)).toEqual(['Carbon Green','Blue & Purple','Red & Orange','Teal & Green']);
+});

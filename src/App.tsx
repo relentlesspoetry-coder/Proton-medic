@@ -21,11 +21,12 @@ import { ActiveFixSessions } from './ActiveFixSessions';
 import { FixAndTest } from './FixAndTest';
 import { AppUpdater } from './AppUpdater';
 import { PagedList } from './PagedList';
-import { GameDetailTabs } from './GameDetailTabs';
+import { SteamGameDetail } from './gameweave/GameDetailLayout';
 import { GameIcon } from './GameIcon';
 import { LaunchTest } from './LaunchTest';
 import { AppearanceSettings } from './gameweave/AppearanceSettings';
 import { GameweaveBrand } from './gameweave/GameweaveBrand';
+import { ToolsHub } from './gameweave/ToolsHub';
 import { readAppearance, saveAppearance, type Appearance } from './gameweave/appearance';
 
 type AppError = { source: 'diagnostics' | 'scan' | 'advisor' | 'vulkan'; message: string };
@@ -214,6 +215,7 @@ export default function App() {
           </button>;
         })}</div>
       </nav>
+      <div className="gw-system-card"><Monitor size={17} aria-hidden="true"/><div><strong>{status}</strong><span>{scan ? `${scan.compatibilityTools.length} Steam compatibility tools` : 'Scan Library to discover games'}</span></div></div>
     </aside>
     <main className="pm-main">
       <div className="pm-workspace-header">{page === 'games' && !selectedGame && !selectedWindowsId ? <h1>My Library</h1> : <span aria-hidden="true"/>}<AppUpdater/></div>
@@ -239,20 +241,21 @@ export default function App() {
 
       </>}
 
-      {page === 'tools' && <>
-        <div className="pm-page-title"><div><h1>Tools</h1><p>Manage Proton, diagnose issues, and inspect your system.</p></div></div>
-        <section className="gw-tool-grid" aria-label="Tool categories">
-          <button className="gw-tool-link" type="button" onClick={() => setPage('protons')}><Layers size={25}/><span><strong>Proton Manager</strong><small>Manage installed runtimes and verified downloads.</small></span></button>
-          <button className="gw-tool-link" type="button" onClick={() => setPage('fixes')}><Wrench size={25}/><span><strong>Diagnostics &amp; Repairs</strong><small>Review findings and supported, recoverable fixes.</small></span></button>
-          <button className="gw-tool-link" type="button" onClick={() => setPage('system')}><Monitor size={25}/><span><strong>System Check</strong><small>Inspect graphics, Vulkan and runtime tools.</small></span></button>
-        </section>
-      </>}
+      {page === 'tools' && <ToolsHub
+        steam={scan?.games ?? []} runtimes={scan?.compatibilityTools ?? []} diagnostics={report?.games ?? []}
+        scanning={loading || analyzing} onRefresh={() => void scanGames()} onScan={() => void analyzeLogs()}
+        onOpenLibrary={showAllGames} onOpenSystem={() => setPage('system')}
+        onOpenWindows={game => { setSelectedKey(null); setSelectedWindowsId(game.id); setPage('games'); }}
+      />}
       {(page === 'protons' || page === 'fixes' || page === 'system') && <button type="button" className="pm-back" onClick={() => setPage('tools')}><ArrowLeft size={17}/> Back to Tools</button>}
       {page === 'windows' && <WindowsGames/>}
       {page === 'games' && <>
 
-        {selectedWindowsId ? <WindowsGames selectedId={selectedWindowsId} onBack={()=>setSelectedWindowsId(undefined)}/> : selectedGame ? <div className="pm-detail-view"><div className="pm-detail-toolbar"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><button className="pm-button pm-button-secondary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={16} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div><div className="pm-selected-head"><GameIcon className="big" source={{ kind: 'steam', appId: selectedGame.appId, libraryPath: selectedGame.libraryPath }}/><div><h1>{selectedGame.name}</h1><span className="pm-game-subtitle">Steam App {selectedGame.appId}</span><div className="pm-detail-status"><StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/></div><p>{getIssue(selectedGame, selectedDiagnosis ?? undefined).note}</p></div></div>
-          <GameDetailTabs key={gameKey(selectedGame)} tabs={[
+        {selectedWindowsId ? <WindowsGames selectedId={selectedWindowsId} onBack={()=>setSelectedWindowsId(undefined)}/> : selectedGame ? <SteamGameDetail key={gameKey(selectedGame)} game={selectedGame}
+          status={<StatusTag {...getIssue(selectedGame, selectedDiagnosis ?? undefined)}/>}
+          note={getIssue(selectedGame, selectedDiagnosis ?? undefined).note}
+          toolbar={<div className="pm-detail-toolbar"><button className="pm-back" onClick={() => setSelectedKey(null)}><ArrowLeft size={17}/> Back to My Games</button><button className="pm-button pm-button-secondary" disabled={loading} onClick={() => void scanGames()}><RefreshCw size={16} className={loading ? 'pm-spin' : ''}/>{loading ? 'Scanning...' : 'Scan Again'}</button></div>}
+          tabs={[
             { id: 'diagnostics', label: 'Diagnostics', content: <>
           <div className="pm-section"><div className="pm-section-heading"><div><h2>What Gameweave Found</h2><p>Existing logs are checked without changing your game.</p></div><button className="pm-subtle-button" disabled={analyzing} onClick={() => void analyzeLogs()}><RefreshCw size={16} className={analyzing ? 'pm-spin' : ''}/>{analyzing ? 'Checking...' : 'Analyze Again'}</button></div>
             {!selectedGame.installPathExists && <div className="pm-callout"><AlertTriangle size={18}/> Game install folder is missing. Check the Steam installation or mount the drive.</div>}
@@ -273,8 +276,7 @@ export default function App() {
           <details className="pm-section pm-technical"><summary>Advanced repairs and backups <ChevronDown size={17}/></summary><RepairTools key={gameKey(selectedGame)} game={selectedGame} onChanged={() => void scanGames()}/></details>
           <details className="pm-section pm-technical"><summary>Technical Details <ChevronDown size={17}/></summary><dl><dt>Install directory</dt><dd>{selectedGame.installPath}</dd><dt>Steam library</dt><dd>{selectedGame.libraryPath}</dd><dt>Proton prefix folder</dt><dd>{selectedGame.prefixPath} — {selectedGame.prefixExists ? 'present' : 'not found'}</dd><dt>Manifest</dt><dd>{selectedGame.manifestPath}</dd><dt>Build ID</dt><dd>{selectedGame.buildId ?? 'Unknown'}</dd><dt>Steam compatibility override</dt><dd>{selectedGame.configuredTool ?? 'Automatic / no override detected'}</dd></dl></details>
             </> },
-          ]}/>
-        </div> : <UnifiedLibrary steam={scan?.games??[]} steamLoading={loading} scanAvailable={!!scan} refreshKey={lastScan?.getTime()??0} problemKeys={problemKeys}
+          ]}/> : <UnifiedLibrary steam={scan?.games??[]} steamLoading={loading} scanAvailable={!!scan} refreshKey={lastScan?.getTime()??0} problemKeys={problemKeys}
           page={libraryPage} onPageChange={setLibraryPage}
           query={query} onQuery={value => { setQuery(value); setLibraryPage(0); }} filter={filter} onFilter={value => { setFilter(value); setLibraryPage(0); }} source={librarySource} onSource={value => { setLibrarySource(value); setLibraryPage(0); }} sort={librarySort} onSort={value => { setLibrarySort(value); setLibraryPage(0); }}
           onAddGame={() => setPage('windows')} onScan={() => void scanGames()} scanning={loading}
@@ -292,7 +294,7 @@ export default function App() {
         </section><details className="pm-section pm-technical"><summary>Advanced system details <ChevronDown size={17}/></summary>{report && <div className="pm-system-advanced"><h3>Graphics devices</h3>{report.system.gpuDevices.map((g,i) => <pre key={i}>{g}</pre>)}<h3>Vulkan ICD files</h3>{report.system.icdManifests.map((v,i) => <pre key={i}>{v}</pre>)}{report.system.notes.map((n,i) => <p key={i}>{n}</p>)}</div>}</details></>}
 
       {page === 'settings' && <>
-        <div className="pm-page-title"><div><h1>Settings</h1><p>Appearance, automatic fixes, and privacy.</p></div></div>
+        <div className="pm-page-title"><div><h1>Settings</h1><p>Personalize Gameweave to match your setup.</p></div></div>
         <AppearanceSettings value={appearance} onChange={changeAppearance} saveError={appearanceError}/>
       </>}
       {page === 'settings' && (autoControl.message || autoMessage) && <p className="pm-auto-message" role="status">{autoControl.message || autoMessage?.message}</p>}

@@ -55,7 +55,7 @@ it('opens the library by default and keeps every tool reachable', async () => {
   expect(screen.getByRole('button', {name:label,exact:true})).toBeTruthy();
  }
  fireEvent.click(screen.getByRole('button',{name:'Tools',exact:true}));
- for(const label of ['Proton Manager','Diagnostics & Repairs','System Check']){
+ for(const label of ['Proton Manager','Diagnostics','System']){
   expect(screen.getByRole('button',{name:new RegExp('^'+label)})).toBeTruthy();
  }
 });
